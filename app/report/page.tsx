@@ -14,6 +14,7 @@ import {
   MicOff,
   Send,
   Trash2,
+  X,
 } from "lucide-react";
 
 export default function CitizenReportPage() {
@@ -30,9 +31,14 @@ export default function CitizenReportPage() {
   } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
 
-  // Photo State
+  // Photo & Preview State
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoName, setPhotoName] = useState("");
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  
+  // Hidden input refs for triggering camera vs gallery
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   // Voice Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -98,6 +104,15 @@ export default function CitizenReportPage() {
 
     setPhoto(file);
     setPhotoName(file.name);
+    // Create a local URL for the preview image
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const removePhoto = () => {
+    setPhoto(null);
+    setPhotoName("");
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImagePreview(null);
   };
 
   /* ---------------- 3. VOICE RECORDING ---------------- */
@@ -267,6 +282,7 @@ export default function CitizenReportPage() {
               setSubmitted(false);
               setPhoto(null);
               setPhotoName("");
+              setImagePreview(null);
               setDescription("");
               setLocation(null);
               deleteRecording();
@@ -288,7 +304,7 @@ export default function CitizenReportPage() {
           Citizen Intake
         </span>
         <h1 className="mt-1 text-3xl font-extrabold text-[#14251c] sm:text-4xl">
-          {t("reportIssue")}
+          {t("reportIssue") || "Report an Issue"}
         </h1>
         <p className="mt-2 text-sm text-[#718078]">
           Upload photos, describe the problem, provide voice notes, or share your GPS location to help municipal teams fix it fast.
@@ -299,7 +315,7 @@ export default function CitizenReportPage() {
         {/* 1. CATEGORY SELECTOR */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
           <label className="text-base font-bold text-[#14251c]">
-            {t("selectCategory")} <span className="text-red-500">*</span>
+            {t("selectCategory") || "Select Category"} <span className="text-red-500">*</span>
           </label>
           <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             {categories.map((cat) => {
@@ -322,46 +338,79 @@ export default function CitizenReportPage() {
           </div>
         </div>
 
-        {/* 2. PHOTO UPLOAD (COMPULSORY) */}
+        {/* 2. PHOTO UPLOAD / CAMERA (COMPULSORY) */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
-          <div className="flex items-center justify-between">
+          <div className="mb-4 flex items-center justify-between">
             <label className="text-base font-bold text-[#14251c]">
-              {t("uploadPhoto")} <span className="text-red-500">*</span>
+              {t("uploadPhoto") || "Attach Evidence"} <span className="text-red-500">*</span>
             </label>
             <span className="text-xs font-bold text-red-500">Required</span>
           </div>
 
-          <label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#dce4de] bg-[#fafcf9] p-8 text-center transition hover:border-[#124b35] hover:bg-[#eef5ef]/40">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#eef5ef] text-[#124b35]">
-              <Camera size={24} />
+          {/* IMAGE PREVIEW OR BUTTONS */}
+          {imagePreview ? (
+            <div className="relative overflow-hidden rounded-2xl border border-[#dce4de]">
+              <img 
+                src={imagePreview} 
+                alt="Issue preview" 
+                className="h-48 w-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={removePhoto}
+                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-red-600 shadow-sm backdrop-blur-sm transition hover:bg-white"
+              >
+                <X size={18} />
+              </button>
             </div>
-            <p className="mt-3 text-sm font-bold text-[#14251c]">
-              Click to capture or upload photo
-            </p>
-            <p className="mt-1 text-xs text-[#718078]">
-              PNG, JPG, or WEBP (Max 10MB)
-            </p>
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handlePhotoChange}
-              className="hidden"
-            />
-          </label>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {/* CAMERA BUTTON */}
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#124b35]/40 bg-[#eef5ef] py-6 text-[#124b35] transition hover:bg-[#dce4de]"
+              >
+                <Camera size={28} />
+                <span className="text-xs font-bold">Take Photo</span>
+              </button>
 
-          {photoName && (
-            <div className="mt-4 flex items-center gap-2 rounded-xl bg-[#eef5ef] p-3 text-xs font-bold text-[#124b35]">
-              <ImageIcon size={16} />
-              <span className="truncate">{photoName}</span>
+              {/* GALLERY BUTTON */}
+              <button
+                type="button"
+                onClick={() => galleryInputRef.current?.click()}
+                className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#dce4de] bg-[#fafcf9] py-6 text-[#718078] transition hover:bg-white hover:text-[#14251c]"
+              >
+                <ImageIcon size={28} />
+                <span className="text-xs font-bold">Upload File</span>
+              </button>
             </div>
           )}
+
+          {/* HIDDEN INPUTS TO TRIGGER ACTIONS */}
+          {/* capture="environment" forces the rear camera on mobile */}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref={cameraInputRef}
+            onChange={handlePhotoChange}
+            className="hidden"
+          />
+          {/* Standard input opens the file/gallery picker */}
+          <input
+            type="file"
+            accept="image/*"
+            ref={galleryInputRef}
+            onChange={handlePhotoChange}
+            className="hidden"
+          />
         </div>
 
         {/* 3. DESCRIPTION */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
           <label className="text-base font-bold text-[#14251c]">
-            {t("describeProblem")}{" "}
+            {t("describeProblem") || "Describe Issue"}{" "}
             <span className="text-xs text-[#718078] font-normal">
               (Optional)
             </span>
@@ -384,7 +433,7 @@ export default function CitizenReportPage() {
         {/* 4. VOICE NOTE RECORDING */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
           <label className="text-base font-bold text-[#14251c]">
-            {t("recordVoice")}{" "}
+            {t("recordVoice") || "Record Voice Note"}{" "}
             <span className="text-xs text-[#718078] font-normal">
               (Optional)
             </span>
@@ -439,7 +488,7 @@ export default function CitizenReportPage() {
         {/* 5. GPS LOCATION CAPTURE */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
           <label className="text-base font-bold text-[#14251c]">
-            {t("attachGps")}
+            {t("attachGps") || "Attach GPS Location"}
           </label>
           <p className="mt-1 text-xs text-[#718078]">
             Helps municipal workers route the issue to the right ward.
@@ -506,7 +555,7 @@ export default function CitizenReportPage() {
             ) : (
               <>
                 <Send size={18} />
-                <span>{t("submitReport")}</span>
+                <span>{t("submitReport") || "Submit Report"}</span>
               </>
             )}
           </button>

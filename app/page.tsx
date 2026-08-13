@@ -55,7 +55,8 @@ export default function HomePage() {
         const parsed = JSON.parse(savedSession);
         setUser(parsed);
         if (parsed.role === "citizen") {
-          fetchUserReports();
+          // Pass the user's identifier to the fetch function
+          fetchUserReports(parsed.identifier);
         }
       } catch {
         setUser(null);
@@ -63,11 +64,13 @@ export default function HomePage() {
     }
   }, []);
 
-  const fetchUserReports = async () => {
+  // Update function to accept the userId and filter the database
+  const fetchUserReports = async (userId: string) => {
     setLoadingReports(true);
     const { data, error } = await supabase
       .from("reports")
       .select("*")
+      .eq("user_id", userId) // <-- THIS IS THE MAGIC LINE
       .order("created_at", { ascending: false });
 
     if (!error && data) {
@@ -266,7 +269,8 @@ export default function HomePage() {
             if (data.role === "worker") {
               window.location.href = "/employees";
             } else if (data.role === "citizen") {
-              fetchUserReports();
+              // Pass the user's identifier to the fetch function upon login
+              fetchUserReports(data.identifier);
             }
           }}
         />

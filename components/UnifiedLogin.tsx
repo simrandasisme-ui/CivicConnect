@@ -1,5 +1,6 @@
 "use client";
 
+import { useLanguage } from "@/context/LanguageContext";
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 import {
@@ -14,7 +15,7 @@ import {
   Vote,
 } from "lucide-react";
 
-type Role = "citizen" | "worker" | "budgeting";
+type Role = "citizen" | "worker" | "budgeting" | "admin";
 type AuthMode = "login" | "register" | "forgot";
 
 type UnifiedLoginProps = {
@@ -27,6 +28,7 @@ type UnifiedLoginProps = {
 };
 
 export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
+  const { t } = useLanguage();
   const [selectedRole, setSelectedRole] = useState<Role>("citizen");
   const [mode, setMode] = useState<AuthMode>("login");
 
@@ -42,21 +44,27 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
   const roles = [
     {
       id: "citizen" as Role,
-      title: "Citizen",
-      subtitle: "Report issues & track progress",
+      title: t("login_roleCitizen") || "Citizen",
+      subtitle: t("login_roleCitizenDesc") || "Report issues & track progress",
       icon: UserRound,
     },
     {
       id: "worker" as Role,
-      title: "Municipal Worker",
-      subtitle: "Manage tickets & post evidence",
+      title: t("login_roleEmployee") || "Municipal Worker",
+      subtitle: t("login_roleEmployeeDesc") || "Manage tickets & post evidence",
       icon: Building2,
     },
     {
       id: "budgeting" as Role,
-      title: "Community Voter",
-      subtitle: "Vote on local public works",
+      title: t("login_roleVoter") || "Community Voter",
+      subtitle: t("login_roleVoterDesc") || "Vote on local public works",
       icon: Vote,
+    },
+    {
+      id: "admin" as Role,
+      title: t("login_roleAdmin") || "Administrator",
+      subtitle: t("login_roleAdminDesc") || "Manage workers & system",
+      icon: ShieldCheck,
     },
   ];
 
@@ -166,20 +174,29 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
           },
         ]);
       }
-
+      
       // 3. LOGIN VERIFICATION
-      if (mode === "login" && selectedRole === "citizen") {
-        const { data: userRecords } = await supabase
-          .from("users")
-          .select("*")
-          .eq("user_id", trimmedId);
-
-        if (userRecords && userRecords.length > 0) {
-          const matchedUser = userRecords[0];
-          if (matchedUser.password && matchedUser.password !== password) {
-            setError("Incorrect password. Please check your credentials.");
+      if (mode === "login") {
+        if (selectedRole === "admin") {
+          // Master Admin Credentials
+          if (trimmedId !== "admin" || password !== "admin123") {
+            setError("Incorrect admin credentials.");
             setLoading(false);
             return;
+          }
+        } else if (selectedRole === "citizen") {
+          const { data: userRecords } = await supabase
+            .from("users")
+            .select("*")
+            .eq("user_id", trimmedId);
+
+          if (userRecords && userRecords.length > 0) {
+            const matchedUser = userRecords[0];
+            if (matchedUser.password && matchedUser.password !== password) {
+              setError("Incorrect password. Please check your credentials.");
+              setLoading(false);
+              return;
+            }
           }
         }
       }
@@ -208,6 +225,8 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
 
       if (selectedRole === "worker") {
         window.location.href = "/employees";
+      } else if (selectedRole === "admin") {
+        window.location.href = "/admin"; // Redirects to the new admin dashboard
       } else if (onLoginSuccess) {
         onLoginSuccess(sessionData);
       }
@@ -235,22 +254,24 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
         </div>
         <h2 className="mt-4 text-2xl font-bold text-[#14251c] sm:text-3xl">
           {mode === "forgot"
-            ? "Reset Password"
+            ? t("login_title_reset") || "Reset Password"
             : selectedRole === "citizen"
             ? mode === "register"
-              ? "Create Citizen Account"
-              : "Citizen Portal Login"
+              ? t("login_title_create") || "Create Citizen Account"
+              : t("login_title") || "Citizen Portal Login"
             : selectedRole === "worker"
-            ? "Municipal Worker Login"
-            : "Community Voter Login"}
+            ? t("login_title_worker") || "Municipal Worker Login"
+            : selectedRole === "admin"
+            ? "Admin Portal Login"
+            : t("login_title_voter") || "Community Voter Login"}
         </h2>
         <p className="mt-2 text-sm text-[#718078]">
-          Select your portal role to continue
+          {t("login_subtitle") || "Select your portal role to continue"}
         </p>
       </div>
 
       {/* ROLE SELECTION TABS */}
-      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {roles.map((role) => {
           const Icon = role.icon;
           const isSelected = selectedRole === role.id;
@@ -304,7 +325,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
               : "text-[#718078] hover:text-[#14251c]"
           }`}
         >
-          Login
+          {t("login_modeLogin") || "Login"}
         </button>
 
         {selectedRole === "citizen" && (
@@ -317,7 +338,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
                 : "text-[#718078] hover:text-[#14251c]"
             }`}
           >
-            New Account
+            {t("login_modeRegister") || "New Account"}
           </button>
         )}
 
@@ -330,7 +351,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
               : "text-[#718078] hover:text-[#14251c]"
           }`}
         >
-          Forgot Password
+          {t("login_modeForgot") || "Forgot Password"}
         </button>
       </div>
 
@@ -339,10 +360,12 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
         <div>
           <label className="block text-sm font-semibold text-[#14251c]">
             {selectedRole === "citizen"
-              ? "User ID / Username"
+              ? t("login_emailLabel") || "User ID / Username"
               : selectedRole === "worker"
-              ? "Employee ID"
-              : "Voter ID / Phone"}
+              ? t("login_employeeLabel") || "Employee ID"
+              : selectedRole === "admin"
+              ? "Admin ID"
+              : t("login_voterLabel") || "Voter ID / Phone"}
           </label>
           <div className="relative mt-1.5">
             <UserRound
@@ -363,7 +386,9 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
 
         <div>
           <label className="block text-sm font-semibold text-[#14251c]">
-            {mode === "forgot" ? "New Password" : "Password"}
+            {mode === "forgot" 
+              ? t("login_newPasswordLabel") || "New Password" 
+              : t("login_passwordLabel") || "Password"}
           </label>
           <div className="relative mt-1.5">
             <Lock
@@ -385,7 +410,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
         {(mode === "register" || mode === "forgot") && (
           <div>
             <label className="block text-sm font-semibold text-[#14251c]">
-              Confirm Password
+              {t("login_confirmPasswordLabel") || "Confirm Password"}
             </label>
             <div className="relative mt-1.5">
               <Lock
@@ -414,10 +439,10 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
               />
               <div>
                 <p className="text-xs font-bold text-[#14251c]">
-                  File Anonymous Reports
+                  {t("login_anonymousLabel") || "File Anonymous Reports"}
                 </p>
                 <p className="text-[11px] text-[#718078]">
-                  Generates an anonymous alias (e.g. CIT-ANON-73817) when filing complaints.
+                  {t("login_anonymousDesc") || "Generates an anonymous alias (e.g. CIT-ANON-73817) when filing complaints."}
                 </p>
               </div>
             </label>
@@ -443,21 +468,23 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
           className="w-full rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b] active:scale-[0.98] disabled:opacity-50 cursor-pointer"
         >
           {loading
-            ? "Authenticating..."
+            ? t("login_authenticating") || "Authenticating..."
             : mode === "forgot"
-            ? "Reset Password & Sign In"
+            ? t("login_submitReset") || "Reset Password & Sign In"
             : selectedRole === "citizen"
             ? mode === "register"
-              ? "Create Account & Sign In"
-              : "Sign In as Citizen"
+              ? t("login_submitRegister") || "Create Account & Sign In"
+              : t("login_submitButton") || "Sign In as Citizen"
             : selectedRole === "worker"
-            ? "Login to Worker Portal"
-            : "Sign In as Voter"}
+            ? t("login_submitWorker") || "Login to Worker Portal"
+            : selectedRole === "admin"
+            ? "Login to Admin Panel"
+            : t("login_submitVoter") || "Sign In as Voter"}
         </button>
 
         <div className="flex items-center justify-center gap-2 pt-2 text-xs text-[#718078]">
           <ShieldCheck size={15} className="text-[#124b35]" />
-          <span>Encrypted account session</span>
+          <span>{t("login_encryptedSession") || "Encrypted account session"}</span>
         </div>
       </div>
     </div>
