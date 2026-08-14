@@ -167,6 +167,18 @@ export default function CitizenReportPage() {
     setIsSubmitting(true);
 
     try {
+      // 1. GET CURRENT USER ID FROM LOCAL STORAGE / COOKIES
+      let currentUserId = "anonymous";
+      const authData = window.localStorage.getItem("civic_connect_auth");
+      if (authData) {
+        try {
+          const parsed = JSON.parse(authData);
+          currentUserId = parsed.identifier; // e.g. "Sai"
+        } catch (err) {
+          console.error("Error reading auth session:", err);
+        }
+      }
+
       let uploadedPhotoUrl = "";
       let uploadedAudioUrl = "";
 
@@ -183,7 +195,6 @@ export default function CitizenReportPage() {
         throw new Error(`Photo upload failed: ${uploadError.message}`);
       }
 
-      // Get Public URL for Photo
       const { data: urlData } = supabase.storage
         .from("issue-media")
         .getPublicUrl(filePath);
@@ -207,11 +218,12 @@ export default function CitizenReportPage() {
         }
       }
 
-      // Step C: Insert Record in Supabase Table
+      // Step C: Insert Record in Supabase Table with user_id
       const { data: insertedData, error: dbError } = await supabase
         .from("reports")
         .insert([
           {
+            user_id: currentUserId, // <-- ATTACHES THE LOGGED-IN USER
             category,
             description: description.trim() || null,
             anonymous,
@@ -249,7 +261,7 @@ export default function CitizenReportPage() {
       setIsSubmitting(false);
     }
   };
-
+  
   /* ---------------- SUCCESS SCREEN ---------------- */
   if (submitted) {
     return (
