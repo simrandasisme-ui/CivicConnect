@@ -12,13 +12,13 @@ import {
   UserCheck,
   UserPlus,
   UserRound,
-  Vote,
+  Landmark,
 } from "lucide-react";
 
 type Role =
   | "citizen"
   | "worker"
-  | "budgeting"
+  | "officer"
   | "admin";
 
 type AuthMode =
@@ -94,14 +94,10 @@ export default function UnifiedLogin({
       icon: Building2,
     },
     {
-      id: "budgeting" as Role,
-      title:
-        t("login_roleVoter") ||
-        "Community Voter",
-      subtitle:
-        t("login_roleVoterDesc") ||
-        "Vote on local public works",
-      icon: Vote,
+      id: "officer" as Role,
+      title: "Budget Officer",
+      subtitle: "Publish & manage civic projects",
+      icon: Landmark,
     },
     {
       id: "admin" as Role,
@@ -144,36 +140,58 @@ export default function UnifiedLogin({
     const trimmedId =
       identifier.trim();
 
-    if (!trimmedId) {
-      setError(
-        selectedRole === "worker"
-          ? "Please enter your Employee ID."
-          : selectedRole === "citizen"
-          ? "Please enter your Email Address."
-          : "Please enter your User ID."
-      );
+    const isAnonymousCitizen = selectedRole === "citizen" && mode === "login" && anonymous;
 
-      return;
-    }
+if (!isAnonymousCitizen) {
+  if (!trimmedId) {
+    setError(
+      selectedRole === "worker"
+        ? "Please enter your Employee ID."
+        : selectedRole === "officer"
+        ? "Please enter your Officer ID."
+        : selectedRole === "citizen"
+        ? "Please enter your Email Address."
+        : "Please enter your Admin ID."
+    );
+    return;
+  }
 
-    if (!password) {
-      setError(
-        "Please enter your password."
-      );
-
-      return;
-    }
+  if (!password) {
+    setError("Please enter your password.");
+    return;
+  }
+}
 
     setLoading(true);
 
     try {
       let finalToken = `jwt_session_${selectedRole}_${Date.now()}`;
+      let finalDisplayName = trimmedId;
+      let finalEmail = trimmedId;
 
-      let finalDisplayName =
-        trimmedId;
+      if (isAnonymousCitizen) {
+    const anonAlias = `anon_${Math.random().toString(36).slice(2, 10)}`;
+    finalToken = `anon_session_${Date.now()}`;
+    finalDisplayName = anonAlias;
+    finalEmail = "";
 
-      let finalEmail =
-        trimmedId;
+    const sessionData = {
+      role: "citizen" as Role,
+      identifier: finalDisplayName,
+      email: finalEmail,
+      anonymous: true,
+      token: finalToken,
+    };
+
+    window.localStorage.setItem("civic_connect_auth", JSON.stringify(sessionData));
+    document.cookie = `civic_connect_auth=${encodeURIComponent(
+      JSON.stringify(sessionData)
+    )}; path=/; max-age=86400; SameSite=Lax`;
+
+    window.location.href = "/report"; // update to your actual report route
+    return;
+  }
+
 
       /*
        * ========================================================
@@ -185,39 +203,28 @@ export default function UnifiedLogin({
         selectedRole === "citizen"
       ) {
         if (!fullName.trim()) {
-          throw new Error(
-            "Please enter your full name."
-          );
+          throw new Error("Please enter your full name.");
         }
 
-        if (
-          password !==
-          confirmPassword
-        ) {
-          throw new Error(
-            "Passwords do not match."
-          );
+        if (password !== confirmPassword) {
+          throw new Error("Passwords do not match.");
         }
 
         const {
           data: signUpData,
           error: signUpError,
-        } =
-          await supabase.auth.signUp({
-            email: trimmedId,
-            password,
-            options: {
-              data: {
-                full_name:
-                  fullName.trim(),
-                role: "citizen",
-              },
+        } = await supabase.auth.signUp({
+          email: trimmedId,
+          password,
+          options: {
+            data: {
+              full_name: fullName.trim(),
+              role: "citizen",
             },
-          });
+          },
+        });
 
-        if (signUpError) {
-          throw signUpError;
-        }
+        if (signUpError) throw signUpError;
 
         if (
           signUpData.user &&
@@ -226,22 +233,14 @@ export default function UnifiedLogin({
           setSuccessMessage(
             "Registration successful! Please check your email to verify your account."
           );
-
           setLoading(false);
-
           return;
         }
 
         if (signUpData.session) {
-          finalToken =
-            signUpData.session
-              .access_token;
-
-          finalDisplayName =
-            fullName.trim();
-
-          finalEmail =
-            trimmedId;
+          finalToken = signUpData.session.access_token;
+          finalDisplayName = fullName.trim();
+          finalEmail = trimmedId;
         }
       }
 
@@ -251,88 +250,58 @@ export default function UnifiedLogin({
        * ========================================================
        */
       else if (mode === "login") {
-
         /*
          * ADMIN
          */
-        if (
-          selectedRole === "admin"
-        ) {
+        if (selectedRole === "admin") {
           if (
-            trimmedId !==
-              "admin" ||
-            password !==
-              "admin123"
+            trimmedId !== "admin" ||
+            password !== "admin123"
           ) {
-            throw new Error(
-              "Incorrect admin credentials."
-            );
+            throw new Error("Incorrect admin credentials.");
           }
 
-          finalDisplayName =
-            "System Admin";
-
-          finalEmail =
-            "admin@civicconnect.com";
+          finalDisplayName = "System Admin";
+          finalEmail = "admin@civicconnect.com";
         }
 
         /*
          * ====================================================
-         * WORKER
-         *
-         * IMPORTANT:
-         * Workers use:
-         *
-         * EMP-12345 + password
-         *
-         * They do NOT use Supabase Auth.
+         * WORKER & OFFICER AUTHENTICATION
          * ====================================================
          */
         else if (
-          selectedRole === "worker"
+          selectedRole === "worker" ||
+          selectedRole === "officer"
         ) {
           const {
             data: workerRecord,
             error: workerError,
-          } =
-            await supabase
-              .from("workers")
-              .select("*")
-              .eq(
-                "dept_id",
-                trimmedId
-              )
-              .maybeSingle();
+          } = await supabase
+            .from("workers")
+            .select("*")
+            .eq("dept_id", trimmedId)
+            .maybeSingle();
 
           if (workerError) {
-            console.error(
-              "Worker lookup error:",
-              workerError
-            );
-
+            console.error("Staff lookup error:", workerError);
             throw new Error(
-              "Unable to verify Employee ID. Please try again."
+              `Unable to verify ${
+                selectedRole === "officer" ? "Officer ID" : "Employee ID"
+              }. Please try again.`
             );
           }
 
           if (!workerRecord) {
             throw new Error(
-              "Worker not found. Check your Employee ID."
+              `${
+                selectedRole === "officer" ? "Officer" : "Worker"
+              } record not found. Check your ID.`
             );
           }
 
-          /*
-           * Current hackathon authentication:
-           *
-           * workers.password
-           */
-          if (
-            workerRecord.password !==
-            password
-          ) {
-            throw new Error(
-              "Incorrect password."
-            );
+          if (workerRecord.password !== password) {
+            throw new Error("Incorrect password.");
           }
 
           finalDisplayName =
@@ -340,180 +309,112 @@ export default function UnifiedLogin({
             workerRecord.full_name ||
             trimmedId;
 
-          finalEmail =
-            workerRecord.dept_id;
+          finalEmail = workerRecord.dept_id;
 
-          /*
-           * ==================================================
-           * SAVE WORKER SESSION
-           *
-           * This is what /employees/page.tsx reads.
-           * ==================================================
-           */
-          const workerSession = {
-            workerId:
-              workerRecord.id,
-
-            fullName:
-              workerRecord.name ||
-              workerRecord.full_name ||
-              "Municipal Worker",
-
-            deptId:
-              workerRecord.dept_id,
-
-            department:
-              workerRecord.department ||
-              "Municipal Department",
-
-            role:
-              workerRecord.role ||
-              "worker",
+          const staffSession = {
+            id: workerRecord.id,
+            fullName: finalDisplayName,
+            deptId: workerRecord.dept_id,
+            department: workerRecord.department || "Municipal Administration",
+            role: selectedRole,
           };
 
-          window.localStorage.setItem(
-            "civic_connect_worker",
-            JSON.stringify(
-              workerSession
-            )
-          );
-
-          console.log(
-            "✅ Worker session saved:",
-            workerSession
-          );
+          if (selectedRole === "officer") {
+            window.localStorage.setItem(
+              "civic_connect_officer",
+              JSON.stringify(staffSession)
+            );
+          } else {
+            window.localStorage.setItem(
+              "civic_connect_worker",
+              JSON.stringify(staffSession)
+            );
+          }
         }
 
         /*
          * CITIZEN LOGIN
          */
-        else if (
-          selectedRole === "citizen"
-        ) {
+        else if (selectedRole === "citizen") {
           const {
             data: authData,
             error: authError,
-          } =
-            await supabase.auth.signInWithPassword(
-              {
-                email: trimmedId,
-                password,
-              }
-            );
+          } = await supabase.auth.signInWithPassword({
+            email: trimmedId,
+            password,
+          });
 
           if (authError) {
-            if (
-              authError.message.includes(
-                "Email not confirmed"
-              )
-            ) {
+            if (authError.message.includes("Email not confirmed")) {
               throw new Error(
                 "Please verify your email address before logging in. Check your inbox."
               );
             }
-
-            throw new Error(
-              "Incorrect credentials. Please try again."
-            );
+            throw new Error("Incorrect credentials. Please try again.");
           }
 
-          if (
-            authData.session &&
-            authData.user
-          ) {
-            finalToken =
-              authData.session
-                .access_token;
-
+          if (authData.session && authData.user) {
+            finalToken = authData.session.access_token;
             finalDisplayName =
-              authData.user
-                .user_metadata
-                ?.full_name ||
-              trimmedId;
-
-            finalEmail =
-              authData.user.email ||
-              trimmedId;
+              authData.user.user_metadata?.full_name || trimmedId;
+            finalEmail = authData.user.email || trimmedId;
           }
         }
       }
 
       /*
        * ========================================================
-       * CUSTOM SESSION
+       * CUSTOM GLOBAL SESSION
        * ========================================================
        */
       const sessionData = {
         role: selectedRole,
-
-        identifier:
-          finalDisplayName,
-
-        email:
-          finalEmail,
-
-        anonymous:
-          selectedRole === "citizen"
-            ? anonymous
-            : false,
-
-        token:
-          finalToken,
+        identifier: finalDisplayName,
+        email: finalEmail,
+        anonymous: selectedRole === "citizen" ? anonymous : false,
+        token: finalToken,
       };
 
-      const sessionString =
-        JSON.stringify(
-          sessionData
-        );
+      const sessionString = JSON.stringify(sessionData);
 
-      window.localStorage.setItem(
-        "civic_connect_auth",
+      window.localStorage.setItem("civic_connect_auth", sessionString);
+      document.cookie = `civic_connect_auth=${encodeURIComponent(
         sessionString
-      );
-
-      document.cookie =
-        `civic_connect_auth=${encodeURIComponent(
-          sessionString
-        )}; path=/; max-age=86400; SameSite=Lax`;
+      )}; path=/; max-age=86400; SameSite=Lax`;
 
       /*
        * ========================================================
        * ROUTING
        * ========================================================
        */
-      if (
-        selectedRole === "worker"
-      ) {
-        window.location.href =
-          "/employees";
-
+      if (selectedRole === "worker") {
+        window.location.href = "/employees";
         return;
       }
 
-      if (
-        selectedRole === "admin"
-      ) {
-        window.location.href =
-          "/admin";
-
+      if (selectedRole === "officer") {
+        window.location.href = "/officer";
         return;
       }
+
+      if (selectedRole === "admin") {
+        window.location.href = "/admin";
+        return;
+      }
+
+      if (selectedRole === "citizen" && anonymous) {
+  window.location.href = "/report"; // update to your actual report route
+  return;
+}
+
 
       if (onLoginSuccess) {
-        onLoginSuccess(
-          sessionData
-        );
+        onLoginSuccess(sessionData);
       }
     } catch (err: unknown) {
-      console.error(
-        "Auth error:",
-        err
-      );
-
+      console.error("Auth error:", err);
       setError(
-        err instanceof Error
-          ? err.message
-          : "Authentication failed."
+        err instanceof Error ? err.message : "Authentication failed."
       );
     } finally {
       setLoading(false);
@@ -522,10 +423,8 @@ export default function UnifiedLogin({
 
   return (
     <div className="mx-auto max-w-2xl rounded-3xl border border-[#dce4de] bg-white p-6 shadow-xl sm:p-10">
-
       {/* HEADER */}
       <div className="text-center">
-
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#124b35] text-white shadow-md">
           {mode === "register" ? (
             <UserPlus size={28} />
@@ -539,46 +438,33 @@ export default function UnifiedLogin({
         <h2 className="mt-4 text-2xl font-bold text-[#14251c] sm:text-3xl">
           {mode === "forgot"
             ? "Reset Password"
-            : selectedRole ===
-              "citizen"
+            : selectedRole === "citizen"
             ? mode === "register"
               ? "Create Citizen Account"
               : "Citizen Portal Login"
-            : selectedRole ===
-              "worker"
+            : selectedRole === "worker"
             ? "Municipal Worker Login"
-            : selectedRole ===
-              "admin"
+            : selectedRole === "admin"
             ? "Admin Portal Login"
-            : "Community Voter Login"}
+            : "Budget Officer Login"}
         </h2>
 
         <p className="mt-2 text-sm text-[#718078]">
-          Select your portal role
-          to continue
+          Select your portal role to continue
         </p>
       </div>
 
       {/* ROLES */}
       <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-
         {roles.map((role) => {
-          const Icon =
-            role.icon;
-
-          const isSelected =
-            selectedRole ===
-            role.id;
+          const Icon = role.icon;
+          const isSelected = selectedRole === role.id;
 
           return (
             <button
               key={role.id}
               type="button"
-              onClick={() =>
-                handleRoleChange(
-                  role.id
-                )
-              }
+              onClick={() => handleRoleChange(role.id)}
               className={`relative flex flex-col items-start rounded-2xl border p-4 text-left transition ${
                 isSelected
                   ? "border-[#124b35] bg-[#eef5ef] ring-2 ring-[#124b35]/20"
@@ -615,14 +501,9 @@ export default function UnifiedLogin({
 
       {/* MODE */}
       <div className="mt-6 flex rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-1.5">
-
         <button
           type="button"
-          onClick={() =>
-            handleModeChange(
-              "login"
-            )
-          }
+          onClick={() => handleModeChange("login")}
           className={`flex-1 rounded-xl py-2 text-xs font-bold transition ${
             mode === "login"
               ? "bg-[#124b35] text-white shadow-sm"
@@ -632,15 +513,10 @@ export default function UnifiedLogin({
           Login
         </button>
 
-        {selectedRole ===
-          "citizen" && (
+        {selectedRole === "citizen" && (
           <button
             type="button"
-            onClick={() =>
-              handleModeChange(
-                "register"
-              )
-            }
+            onClick={() => handleModeChange("register")}
             className={`flex-1 rounded-xl py-2 text-xs font-bold transition ${
               mode === "register"
                 ? "bg-[#124b35] text-white shadow-sm"
@@ -653,11 +529,7 @@ export default function UnifiedLogin({
 
         <button
           type="button"
-          onClick={() =>
-            handleModeChange(
-              "forgot"
-            )
-          }
+          onClick={() => handleModeChange("forgot")}
           className={`flex-1 rounded-xl py-2 text-xs font-bold transition ${
             mode === "forgot"
               ? "bg-[#124b35] text-white shadow-sm"
@@ -670,12 +542,8 @@ export default function UnifiedLogin({
 
       {/* FORM */}
       <div className="mt-6 space-y-4">
-
         {/* FULL NAME */}
-        {mode ===
-          "register" &&
-          selectedRole ===
-            "citizen" && (
+        {mode === "register" && selectedRole === "citizen" && (
           <div>
             <label className="block text-sm font-semibold text-[#14251c]">
               Full Name
@@ -690,11 +558,7 @@ export default function UnifiedLogin({
               <input
                 type="text"
                 value={fullName}
-                onChange={(e) =>
-                  setFullName(
-                    e.target.value
-                  )
-                }
+                onChange={(e) => setFullName(e.target.value)}
                 placeholder="e.g. Rahul Sharma"
                 className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none focus:border-[#124b35]"
               />
@@ -705,16 +569,13 @@ export default function UnifiedLogin({
         {/* IDENTIFIER */}
         <div>
           <label className="block text-sm font-semibold text-[#14251c]">
-            {selectedRole ===
-            "citizen"
+            {selectedRole === "citizen"
               ? "Email Address"
-              : selectedRole ===
-                "worker"
+              : selectedRole === "worker"
               ? "Employee ID"
-              : selectedRole ===
-                "admin"
-              ? "Admin ID"
-              : "Voter ID"}
+              : selectedRole === "officer"
+              ? "Officer ID"
+              : "Admin ID"}
           </label>
 
           <div className="relative mt-1.5">
@@ -724,29 +585,17 @@ export default function UnifiedLogin({
             />
 
             <input
-              type={
-                selectedRole ===
-                "citizen"
-                  ? "email"
-                  : "text"
-              }
+              type={selectedRole === "citizen" ? "email" : "text"}
               value={identifier}
-              onChange={(e) =>
-                setIdentifier(
-                  e.target.value
-                )
-              }
+              onChange={(e) => setIdentifier(e.target.value)}
               placeholder={
-                selectedRole ===
-                "citizen"
+                selectedRole === "citizen"
                   ? "e.g. name@example.com"
-                  : selectedRole ===
-                    "worker"
+                  : selectedRole === "worker"
                   ? "e.g. EMP-12345"
-                  : selectedRole ===
-                    "admin"
-                  ? "e.g. admin"
-                  : "Voter ID"
+                  : selectedRole === "officer"
+                  ? "e.g. OFF-9901"
+                  : "e.g. admin"
               }
               className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none focus:border-[#124b35]"
             />
@@ -768,11 +617,7 @@ export default function UnifiedLogin({
             <input
               type="password"
               value={password}
-              onChange={(e) =>
-                setPassword(
-                  e.target.value
-                )
-              }
+              onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter password"
               className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none focus:border-[#124b35]"
             />
@@ -780,9 +625,7 @@ export default function UnifiedLogin({
         </div>
 
         {/* CONFIRM PASSWORD */}
-        {(mode ===
-          "register" ||
-          mode === "forgot") && (
+        {(mode === "register" || mode === "forgot") && (
           <div>
             <label className="block text-sm font-semibold text-[#14251c]">
               Confirm Password
@@ -796,14 +639,8 @@ export default function UnifiedLogin({
 
               <input
                 type="password"
-                value={
-                  confirmPassword
-                }
-                onChange={(e) =>
-                  setConfirmPassword(
-                    e.target.value
-                  )
-                }
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Re-enter password"
                 className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none focus:border-[#124b35]"
               />
@@ -812,33 +649,23 @@ export default function UnifiedLogin({
         )}
 
         {/* ANONYMOUS */}
-        {selectedRole ===
-          "citizen" &&
-          mode === "login" && (
+        {selectedRole === "citizen" && mode === "login" && (
           <div className="rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-3.5">
             <label className="flex cursor-pointer items-start gap-3">
               <input
                 type="checkbox"
                 checked={anonymous}
-                onChange={(e) =>
-                  setAnonymous(
-                    e.target.checked
-                  )
-                }
+                onChange={(e) => setAnonymous(e.target.checked)}
                 className="mt-1 h-4 w-4 accent-[#124b35]"
               />
 
               <div>
                 <p className="text-xs font-bold text-[#14251c]">
-                  File Anonymous
-                  Reports
+                  File Anonymous Reports
                 </p>
 
                 <p className="text-[11px] text-[#718078]">
-                  Generates an
-                  anonymous alias
-                  when filing
-                  complaints.
+                  Generates an anonymous alias when filing complaints.
                 </p>
               </div>
             </label>
@@ -862,9 +689,7 @@ export default function UnifiedLogin({
         {/* SUBMIT */}
         <button
           type="button"
-          onClick={
-            handleAuthAction
-          }
+          onClick={handleAuthAction}
           disabled={loading}
           className="w-full rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b] disabled:opacity-50"
         >
@@ -872,32 +697,24 @@ export default function UnifiedLogin({
             ? "Authenticating..."
             : mode === "forgot"
             ? "Reset Password & Sign In"
-            : selectedRole ===
-              "citizen"
+            : selectedRole === "citizen"
             ? mode === "register"
               ? "Create Account & Sign In"
               : "Sign In as Citizen"
-            : selectedRole ===
-              "worker"
+            : selectedRole === "worker"
             ? "Login to Worker Portal"
-            : selectedRole ===
-              "admin"
+            : selectedRole === "admin"
             ? "Login to Admin Panel"
-            : "Sign In as Voter"}
+            : "Login to Officer Dashboard"}
         </button>
 
         {/* SECURITY */}
         <div className="flex items-center justify-center gap-2 pt-2 text-xs text-[#718078]">
-          <ShieldCheck
-            size={15}
-            className="text-[#124b35]"
-          />
-
+          <ShieldCheck size={15} className="text-[#124b35]" />
           <span>
-            {selectedRole ===
-            "citizen"
+            {selectedRole === "citizen"
               ? "Secured by Supabase Auth"
-              : "Employee ID Authentication"}
+              : "Official Staff ID Authentication"}
           </span>
         </div>
       </div>
