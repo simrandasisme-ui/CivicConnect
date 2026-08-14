@@ -416,7 +416,6 @@ export const TranslationsMap = {
   login_modeLogin: { en: "Login", hi: "लॉगिन", or: "ଲଗ୍‌ଇନ୍", mr: "लॉगिन", te: "లాగిన్", ta: "உள்நுழை", bn: "লগইন" },
   login_modeRegister: { en: "New Account", hi: "नया खाता", or: "ନୂତନ ଆକାଉଣ୍ଟ୍", mr: "नवीन खाते", te: "కొత్త ఖాతా", ta: "புதிய கணக்கு", bn: "নতুন অ্যাকাউন্ট" },
   login_modeForgot: { en: "Forgot Password", hi: "पासवर्ड भूल गए", or: "ପାସୱାର୍ଡ ଭୁଲିଗଲେ", mr: "पासवर्ड विसरलात", te: "పాస్‌వర్డ్ మర్చిపోయారా", ta: "கடவுச்சொல் மறந்துவிட்டது", bn: "পাসওয়ার্ড ভুলে গেছেন" },
-  login_voterLabel: { en: "Voter ID / Phone", hi: "वोटर आईडी / फोन", or: "ଭୋଟର ଆଇଡି / ଫୋନ୍", mr: "मतदार आयडी / फोन", te: "ఓటరు ఐడీ / ఫోన్", ta: "வாக்காளர் ஐடி / தொலைபேசி", bn: "ভোটার আইডি / ফোন" },
   login_passwordLabel: { en: "Password", hi: "पासवर्ड", or: "ପାସୱାର୍ଡ", mr: "पासवर्ड", te: "పాస్‌వర్డ్", ta: "கடவுச்சொல்", bn: "পাসওয়ার্ড" },
   login_newPasswordLabel: { en: "New Password", hi: "नया पासवर्ड", or: "ନୂଆ ପାସୱାର୍ଡ", mr: "नवीन पासवर्ड", te: "కొత్త పాస్‌వర్డ్", ta: "புதிய கடவுச்சொல்", bn: "নতুন পাসওয়ার্ড" },
   login_confirmPasswordLabel: { en: "Confirm Password", hi: "पासवर्ड की पुष्टि करें", or: "ପାସୱାର୍ଡ ନିଶ୍ଚିତ କରନ୍ତୁ", mr: "पासवर्डची पुष्टी करा", te: "పాస్‌వర్డ్‌ని నిర్ధారించండి", ta: "கடவுச்சொல்லை உறுதிப்படுத்து", bn: "পাসওয়ার্ড নিশ্চিত করুন" },
@@ -476,6 +475,24 @@ export const TranslationsMap = {
     te: "ఉదా. రాహుల్ శర్మ",
     ta: "எ.கா. ராகுல் சர்மா",
     bn: "যেমন রাহুল শর্মা"
+  },
+  login_voterLabel: {
+    en: "Voter ID / Phone",
+    hi: "वोटर आईडी / फ़ोन",
+    or: "ଭୋଟର ଆଇଡି / ଫୋନ୍",
+    mr: "मतदार ओळखपत्र / फोन",
+    te: "ఓటరు ఐడి / ఫోన్",
+    ta: "வாக்காளர் அடையாள அட்டை / தொலைபேசி",
+    bn: "ভোটার আইডি / ফোন"
+  },
+  login_voterPlaceholder: {
+    en: "e.g. VOT-4092 or Phone",
+    hi: "उदा. VOT-4092 या फ़ोन",
+    or: "ଉଦାହରଣ. VOT-4092 କିମ୍ବା ଫୋନ୍",
+    mr: "उदा. VOT-4092 किंवा फोन",
+    te: "ఉదా. VOT-4092 లేదా ఫోన్",
+    ta: "எ.கா. VOT-4092 அல்லது தொலைபேசி",
+    bn: "যেমন VOT-4092 বা ফোন"
   },
   // --- REPORT PAGE UNTRANSLATED STRINGS ---
   citizenIntake: {

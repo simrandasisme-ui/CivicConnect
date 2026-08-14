@@ -15,8 +15,16 @@ import {
   Vote,
 } from "lucide-react";
 
-type Role = "citizen" | "worker" | "budgeting" | "admin";
-type AuthMode = "login" | "register" | "forgot";
+type Role =
+  | "citizen"
+  | "worker"
+  | "budgeting"
+  | "admin";
+
+type AuthMode =
+  | "login"
+  | "register"
+  | "forgot";
 
 type UnifiedLoginProps = {
   onLoginSuccess?: (data: {
@@ -29,49 +37,87 @@ type UnifiedLoginProps = {
   }) => void;
 };
 
-export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
+export default function UnifiedLogin({
+  onLoginSuccess,
+}: UnifiedLoginProps) {
   const { t } = useLanguage();
-  const [selectedRole, setSelectedRole] = useState<Role>("citizen");
-  const [mode, setMode] = useState<AuthMode>("login");
 
-  // Form State
-  const [identifier, setIdentifier] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [anonymous, setAnonymous] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [selectedRole, setSelectedRole] =
+    useState<Role>("citizen");
+
+  const [mode, setMode] =
+    useState<AuthMode>("login");
+
+  const [identifier, setIdentifier] =
+    useState("");
+
+  const [fullName, setFullName] =
+    useState("");
+
+  const [password, setPassword] =
+    useState("");
+
+  const [confirmPassword, setConfirmPassword] =
+    useState("");
+
+  const [anonymous, setAnonymous] =
+    useState(false);
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [successMessage, setSuccessMessage] =
+    useState("");
 
   const roles = [
     {
       id: "citizen" as Role,
-      title: t("login_roleCitizen") || "Citizen",
-      subtitle: t("login_roleCitizenDesc") || "Report issues & track progress",
+      title:
+        t("login_roleCitizen") ||
+        "Citizen",
+      subtitle:
+        t("login_roleCitizenDesc") ||
+        "Report issues & track progress",
       icon: UserRound,
     },
     {
       id: "worker" as Role,
-      title: t("login_roleEmployee") || "Municipal Worker",
-      subtitle: t("login_roleEmployeeDesc") || "Manage tickets & post evidence",
+      title:
+        t("login_roleEmployee") ||
+        "Municipal Worker",
+      subtitle:
+        t("login_roleEmployeeDesc") ||
+        "Manage tickets & post evidence",
       icon: Building2,
     },
     {
       id: "budgeting" as Role,
-      title: t("login_roleVoter") || "Community Voter",
-      subtitle: t("login_roleVoterDesc") || "Vote on local public works",
+      title:
+        t("login_roleVoter") ||
+        "Community Voter",
+      subtitle:
+        t("login_roleVoterDesc") ||
+        "Vote on local public works",
       icon: Vote,
     },
     {
       id: "admin" as Role,
-      title: t("login_roleAdmin") || "Administrator",
-      subtitle: t("login_roleAdminDesc") || "Manage workers & system",
+      title:
+        t("login_roleAdmin") ||
+        "Administrator",
+      subtitle:
+        t("login_roleAdminDesc") ||
+        "Manage workers & system",
       icon: ShieldCheck,
     },
   ];
 
-  const handleRoleChange = (role: Role) => {
+  const handleRoleChange = (
+    role: Role
+  ) => {
     setSelectedRole(role);
     setMode("login");
     setIdentifier("");
@@ -81,7 +127,9 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
     setSuccessMessage("");
   };
 
-  const handleModeChange = (newMode: AuthMode) => {
+  const handleModeChange = (
+    newMode: AuthMode
+  ) => {
     setMode(newMode);
     setError("");
     setSuccessMessage("");
@@ -93,7 +141,8 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
     setError("");
     setSuccessMessage("");
 
-    const trimmedId = identifier.trim();
+    const trimmedId =
+      identifier.trim();
 
     if (!trimmedId) {
       setError(
@@ -103,107 +152,369 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
           ? "Please enter your Email Address."
           : "Please enter your User ID."
       );
+
+      return;
+    }
+
+    if (!password) {
+      setError(
+        "Please enter your password."
+      );
+
       return;
     }
 
     setLoading(true);
 
     try {
-// ==========================================
-      // 3. LOGIN VERIFICATION
-      // ==========================================
-      let finalToken = `jwt_session_${selectedRole}_${Date.now()}`; // Mock token for non-citizens
-      let finalDisplayName = trimmedId; // Default to what they typed
+      let finalToken = `jwt_session_${selectedRole}_${Date.now()}`;
 
-      if (mode === "login") {
-        if (selectedRole === "admin") {
-          if (trimmedId !== "admin" || password !== "admin123") {
-            setError("Incorrect admin credentials.");
-            setLoading(false);
-            return;
-          }
-        } 
-        else if (selectedRole === "worker") {
-          const { data: workerRecords } = await supabase
-            .from("workers")
-            .select("*")
-            .eq("dept_id", trimmedId);
+      let finalDisplayName =
+        trimmedId;
 
-          if (workerRecords && workerRecords.length > 0) {
-            if (workerRecords[0].password !== password) {
-              setError("Incorrect password.");
-              setLoading(false);
-              return;
-            }
-            // If you have worker names in the database, you can set it here:
-            // finalDisplayName = workerRecords[0].name || trimmedId;
-          } else {
-             setError("Worker not found.");
-             setLoading(false);
-             return;
-          }
+      let finalEmail =
+        trimmedId;
+
+      /*
+       * ========================================================
+       * CITIZEN REGISTRATION
+       * ========================================================
+       */
+      if (
+        mode === "register" &&
+        selectedRole === "citizen"
+      ) {
+        if (!fullName.trim()) {
+          throw new Error(
+            "Please enter your full name."
+          );
         }
-        else if (selectedRole === "citizen") {
-          // SECURE CITIZEN LOGIN
-          const { data, error } = await supabase.auth.signInWithPassword({
+
+        if (
+          password !==
+          confirmPassword
+        ) {
+          throw new Error(
+            "Passwords do not match."
+          );
+        }
+
+        const {
+          data: signUpData,
+          error: signUpError,
+        } =
+          await supabase.auth.signUp({
             email: trimmedId,
-            password: password,
+            password,
+            options: {
+              data: {
+                full_name:
+                  fullName.trim(),
+                role: "citizen",
+              },
+            },
           });
 
-          if (error) {
-            if (error.message.includes("Email not confirmed")) {
-              setError("Please verify your email address before logging in. Check your inbox.");
-            } else {
-              setError("Incorrect credentials. Please try again.");
-            }
-            setLoading(false);
-            return; // Halt on error
+        if (signUpError) {
+          throw signUpError;
+        }
+
+        if (
+          signUpData.user &&
+          !signUpData.session
+        ) {
+          setSuccessMessage(
+            "Registration successful! Please check your email to verify your account."
+          );
+
+          setLoading(false);
+
+          return;
+        }
+
+        if (signUpData.session) {
+          finalToken =
+            signUpData.session
+              .access_token;
+
+          finalDisplayName =
+            fullName.trim();
+
+          finalEmail =
+            trimmedId;
+        }
+      }
+
+      /*
+       * ========================================================
+       * LOGIN
+       * ========================================================
+       */
+      else if (mode === "login") {
+
+        /*
+         * ADMIN
+         */
+        if (
+          selectedRole === "admin"
+        ) {
+          if (
+            trimmedId !==
+              "admin" ||
+            password !==
+              "admin123"
+          ) {
+            throw new Error(
+              "Incorrect admin credentials."
+            );
           }
-          
-          // Extract token and full name from Supabase
-          if (data.session) {
-            finalToken = data.session.access_token;
-            
-            // Check if the full_name exists in the user's metadata
-            if (data.user?.user_metadata?.full_name) {
-              finalDisplayName = data.user.user_metadata.full_name;
+
+          finalDisplayName =
+            "System Admin";
+
+          finalEmail =
+            "admin@civicconnect.com";
+        }
+
+        /*
+         * ====================================================
+         * WORKER
+         *
+         * IMPORTANT:
+         * Workers use:
+         *
+         * EMP-12345 + password
+         *
+         * They do NOT use Supabase Auth.
+         * ====================================================
+         */
+        else if (
+          selectedRole === "worker"
+        ) {
+          const {
+            data: workerRecord,
+            error: workerError,
+          } =
+            await supabase
+              .from("workers")
+              .select("*")
+              .eq(
+                "dept_id",
+                trimmedId
+              )
+              .maybeSingle();
+
+          if (workerError) {
+            console.error(
+              "Worker lookup error:",
+              workerError
+            );
+
+            throw new Error(
+              "Unable to verify Employee ID. Please try again."
+            );
+          }
+
+          if (!workerRecord) {
+            throw new Error(
+              "Worker not found. Check your Employee ID."
+            );
+          }
+
+          /*
+           * Current hackathon authentication:
+           *
+           * workers.password
+           */
+          if (
+            workerRecord.password !==
+            password
+          ) {
+            throw new Error(
+              "Incorrect password."
+            );
+          }
+
+          finalDisplayName =
+            workerRecord.name ||
+            workerRecord.full_name ||
+            trimmedId;
+
+          finalEmail =
+            workerRecord.dept_id;
+
+          /*
+           * ==================================================
+           * SAVE WORKER SESSION
+           *
+           * This is what /employees/page.tsx reads.
+           * ==================================================
+           */
+          const workerSession = {
+            workerId:
+              workerRecord.id,
+
+            fullName:
+              workerRecord.name ||
+              workerRecord.full_name ||
+              "Municipal Worker",
+
+            deptId:
+              workerRecord.dept_id,
+
+            department:
+              workerRecord.department ||
+              "Municipal Department",
+
+            role:
+              workerRecord.role ||
+              "worker",
+          };
+
+          window.localStorage.setItem(
+            "civic_connect_worker",
+            JSON.stringify(
+              workerSession
+            )
+          );
+
+          console.log(
+            "✅ Worker session saved:",
+            workerSession
+          );
+        }
+
+        /*
+         * CITIZEN LOGIN
+         */
+        else if (
+          selectedRole === "citizen"
+        ) {
+          const {
+            data: authData,
+            error: authError,
+          } =
+            await supabase.auth.signInWithPassword(
+              {
+                email: trimmedId,
+                password,
+              }
+            );
+
+          if (authError) {
+            if (
+              authError.message.includes(
+                "Email not confirmed"
+              )
+            ) {
+              throw new Error(
+                "Please verify your email address before logging in. Check your inbox."
+              );
             }
+
+            throw new Error(
+              "Incorrect credentials. Please try again."
+            );
+          }
+
+          if (
+            authData.session &&
+            authData.user
+          ) {
+            finalToken =
+              authData.session
+                .access_token;
+
+            finalDisplayName =
+              authData.user
+                .user_metadata
+                ?.full_name ||
+              trimmedId;
+
+            finalEmail =
+              authData.user.email ||
+              trimmedId;
           }
         }
       }
-      
-      // ==========================================
-      // 4. PERSIST SESSION
-      // ==========================================
+
+      /*
+       * ========================================================
+       * CUSTOM SESSION
+       * ========================================================
+       */
       const sessionData = {
         role: selectedRole,
-        identifier: finalDisplayName, // Now passes the Name instead of the Email!
-        email: trimmedId,             // Safely stores the email separately
-        anonymous: selectedRole === "citizen" ? anonymous : false,
-        token: finalToken,
+
+        identifier:
+          finalDisplayName,
+
+        email:
+          finalEmail,
+
+        anonymous:
+          selectedRole === "citizen"
+            ? anonymous
+            : false,
+
+        token:
+          finalToken,
       };
 
-      const sessionString = JSON.stringify(sessionData);
+      const sessionString =
+        JSON.stringify(
+          sessionData
+        );
 
-      try {
-        window.localStorage.setItem("civic_connect_auth", sessionString);
-      } catch (e) {
-        console.warn("Storage warning:", e);
+      window.localStorage.setItem(
+        "civic_connect_auth",
+        sessionString
+      );
+
+      document.cookie =
+        `civic_connect_auth=${encodeURIComponent(
+          sessionString
+        )}; path=/; max-age=86400; SameSite=Lax`;
+
+      /*
+       * ========================================================
+       * ROUTING
+       * ========================================================
+       */
+      if (
+        selectedRole === "worker"
+      ) {
+        window.location.href =
+          "/employees";
+
+        return;
       }
 
-      document.cookie = `civic_connect_auth=${encodeURIComponent(sessionString)}; path=/; max-age=86400`;
+      if (
+        selectedRole === "admin"
+      ) {
+        window.location.href =
+          "/admin";
 
-      if (selectedRole === "worker") {
-        window.location.href = "/employees";
-      } else if (selectedRole === "admin") {
-        window.location.href = "/admin"; 
-      } else if (onLoginSuccess) {
-        onLoginSuccess(sessionData);
+        return;
       }
-      
+
+      if (onLoginSuccess) {
+        onLoginSuccess(
+          sessionData
+        );
+      }
     } catch (err: unknown) {
-      console.error("Auth error:", err);
-      setError(err instanceof Error ? err.message : "Authentication failed.");
+      console.error(
+        "Auth error:",
+        err
+      );
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Authentication failed."
+      );
     } finally {
       setLoading(false);
     }
@@ -211,8 +522,10 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
 
   return (
     <div className="mx-auto max-w-2xl rounded-3xl border border-[#dce4de] bg-white p-6 shadow-xl sm:p-10">
+
       {/* HEADER */}
       <div className="text-center">
+
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#124b35] text-white shadow-md">
           {mode === "register" ? (
             <UserPlus size={28} />
@@ -222,36 +535,51 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
             <UserCheck size={28} />
           )}
         </div>
+
         <h2 className="mt-4 text-2xl font-bold text-[#14251c] sm:text-3xl">
           {mode === "forgot"
-            ? t("login_title_reset") || "Reset Password"
-            : selectedRole === "citizen"
+            ? "Reset Password"
+            : selectedRole ===
+              "citizen"
             ? mode === "register"
-              ? t("login_title_create") || "Create Citizen Account"
-              : t("login_title") || "Citizen Portal Login"
-            : selectedRole === "worker"
-            ? t("login_title_worker") || "Municipal Worker Login"
-            : selectedRole === "admin"
+              ? "Create Citizen Account"
+              : "Citizen Portal Login"
+            : selectedRole ===
+              "worker"
+            ? "Municipal Worker Login"
+            : selectedRole ===
+              "admin"
             ? "Admin Portal Login"
-            : t("login_title_voter") || "Community Voter Login"}
+            : "Community Voter Login"}
         </h2>
+
         <p className="mt-2 text-sm text-[#718078]">
-          {t("login_subtitle") || "Select your portal role to continue"}
+          Select your portal role
+          to continue
         </p>
       </div>
 
-      {/* ROLE SELECTION TABS */}
+      {/* ROLES */}
       <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+
         {roles.map((role) => {
-          const Icon = role.icon;
-          const isSelected = selectedRole === role.id;
+          const Icon =
+            role.icon;
+
+          const isSelected =
+            selectedRole ===
+            role.id;
 
           return (
             <button
               key={role.id}
               type="button"
-              onClick={() => handleRoleChange(role.id)}
-              className={`relative flex flex-col items-start rounded-2xl border p-4 text-left transition cursor-pointer ${
+              onClick={() =>
+                handleRoleChange(
+                  role.id
+                )
+              }
+              className={`relative flex flex-col items-start rounded-2xl border p-4 text-left transition ${
                 isSelected
                   ? "border-[#124b35] bg-[#eef5ef] ring-2 ring-[#124b35]/20"
                   : "border-[#dce4de] bg-white hover:border-[#124b35]/40 hover:bg-[#fafcf9]"
@@ -267,9 +595,10 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
                 <Icon size={20} />
               </div>
 
-              <p className="mt-3 font-bold text-[#14251c] text-sm">
+              <p className="mt-3 text-sm font-bold text-[#14251c]">
                 {role.title}
               </p>
+
               <p className="mt-1 text-[11px] leading-4 text-[#718078]">
                 {role.subtitle}
               </p>
@@ -284,211 +613,292 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
         })}
       </div>
 
-      {/* MODE SELECTION TOGGLE */}
-      <div className="mt-6 flex rounded-2xl bg-[#fafcf9] p-1.5 border border-[#dce4de]">
+      {/* MODE */}
+      <div className="mt-6 flex rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-1.5">
+
         <button
           type="button"
-          onClick={() => handleModeChange("login")}
-          className={`flex-1 rounded-xl py-2 text-xs font-bold transition cursor-pointer ${
+          onClick={() =>
+            handleModeChange(
+              "login"
+            )
+          }
+          className={`flex-1 rounded-xl py-2 text-xs font-bold transition ${
             mode === "login"
               ? "bg-[#124b35] text-white shadow-sm"
-              : "text-[#718078] hover:text-[#14251c]"
+              : "text-[#718078]"
           }`}
         >
-          {t("login_modeLogin") || "Login"}
+          Login
         </button>
 
-        {selectedRole === "citizen" && (
+        {selectedRole ===
+          "citizen" && (
           <button
             type="button"
-            onClick={() => handleModeChange("register")}
-            className={`flex-1 rounded-xl py-2 text-xs font-bold transition cursor-pointer ${
+            onClick={() =>
+              handleModeChange(
+                "register"
+              )
+            }
+            className={`flex-1 rounded-xl py-2 text-xs font-bold transition ${
               mode === "register"
                 ? "bg-[#124b35] text-white shadow-sm"
-                : "text-[#718078] hover:text-[#14251c]"
+                : "text-[#718078]"
             }`}
           >
-            {t("login_modeRegister") || "New Account"}
+            New Account
           </button>
         )}
 
         <button
           type="button"
-          onClick={() => handleModeChange("forgot")}
-          className={`flex-1 rounded-xl py-2 text-xs font-bold transition cursor-pointer ${
+          onClick={() =>
+            handleModeChange(
+              "forgot"
+            )
+          }
+          className={`flex-1 rounded-xl py-2 text-xs font-bold transition ${
             mode === "forgot"
               ? "bg-[#124b35] text-white shadow-sm"
-              : "text-[#718078] hover:text-[#14251c]"
+              : "text-[#718078]"
           }`}
         >
-          {t("login_modeForgot") || "Forgot Password"}
+          Forgot Password
         </button>
       </div>
 
-      {/* FORM INPUTS */}
+      {/* FORM */}
       <div className="mt-6 space-y-4">
-        
-        {/* 1. FULL NAME (Only shows during Citizen Registration) */}
-        {mode === "register" && selectedRole === "citizen" && (
+
+        {/* FULL NAME */}
+        {mode ===
+          "register" &&
+          selectedRole ===
+            "citizen" && (
           <div>
             <label className="block text-sm font-semibold text-[#14251c]">
-              {t("login_nameLabel") || "Full Name"}
+              Full Name
             </label>
+
             <div className="relative mt-1.5">
               <UserRound
                 size={18}
                 className="absolute left-4 top-1/2 -translate-y-1/2 text-[#718078]"
               />
+
               <input
                 type="text"
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder={t("login_namePlaceholder") || "e.g. Rahul Sharma"}
-                className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none transition focus:border-[#124b35] focus:ring-2 focus:ring-[#124b35]/10"
+                onChange={(e) =>
+                  setFullName(
+                    e.target.value
+                  )
+                }
+                placeholder="e.g. Rahul Sharma"
+                className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none focus:border-[#124b35]"
               />
             </div>
           </div>
         )}
 
-        {/* 2. IDENTIFIER (Email Address for Citizens / IDs for Workers & Admins) */}
+        {/* IDENTIFIER */}
         <div>
           <label className="block text-sm font-semibold text-[#14251c]">
-            {selectedRole === "citizen"
-              ? t("login_emailLabel") || "Email Address"
-              : selectedRole === "worker"
-              ? t("login_employeeLabel") || "Employee ID"
-              : selectedRole === "admin"
+            {selectedRole ===
+            "citizen"
+              ? "Email Address"
+              : selectedRole ===
+                "worker"
+              ? "Employee ID"
+              : selectedRole ===
+                "admin"
               ? "Admin ID"
-              : t("login_voterLabel") || "Voter ID / Phone"}
+              : "Voter ID"}
           </label>
+
           <div className="relative mt-1.5">
             <UserRound
               size={18}
               className="absolute left-4 top-1/2 -translate-y-1/2 text-[#718078]"
             />
+
             <input
-              type={selectedRole === "citizen" ? "email" : "text"}
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              placeholder={
-                selectedRole === "citizen" 
-                  ? t("login_emailPlaceholder") || "e.g. name@example.com" 
-                  : selectedRole === "worker" 
-                  ? "e.g. EMP-4092" 
-                  : "e.g. Rahul2026"
+              type={
+                selectedRole ===
+                "citizen"
+                  ? "email"
+                  : "text"
               }
-              className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none transition focus:border-[#124b35] focus:ring-2 focus:ring-[#124b35]/10"
+              value={identifier}
+              onChange={(e) =>
+                setIdentifier(
+                  e.target.value
+                )
+              }
+              placeholder={
+                selectedRole ===
+                "citizen"
+                  ? "e.g. name@example.com"
+                  : selectedRole ===
+                    "worker"
+                  ? "e.g. EMP-12345"
+                  : selectedRole ===
+                    "admin"
+                  ? "e.g. admin"
+                  : "Voter ID"
+              }
+              className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none focus:border-[#124b35]"
             />
           </div>
         </div>
 
-        {/* 3. PASSWORD */}
+        {/* PASSWORD */}
         <div>
           <label className="block text-sm font-semibold text-[#14251c]">
-            {mode === "forgot" 
-              ? t("login_newPasswordLabel") || "New Password" 
-              : t("login_passwordLabel") || "Password"}
+            Password
           </label>
+
           <div className="relative mt-1.5">
             <Lock
               size={18}
               className="absolute left-4 top-1/2 -translate-y-1/2 text-[#718078]"
             />
+
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={
-                mode === "forgot" ? "Enter new password" : "Enter password"
+              onChange={(e) =>
+                setPassword(
+                  e.target.value
+                )
               }
-              className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none transition focus:border-[#124b35] focus:ring-2 focus:ring-[#124b35]/10"
+              placeholder="Enter password"
+              className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none focus:border-[#124b35]"
             />
           </div>
         </div>
 
-        {/* 4. CONFIRM PASSWORD (Only shows for Registration or Forgot Password) */}
-        {(mode === "register" || mode === "forgot") && (
+        {/* CONFIRM PASSWORD */}
+        {(mode ===
+          "register" ||
+          mode === "forgot") && (
           <div>
             <label className="block text-sm font-semibold text-[#14251c]">
-              {t("login_confirmPasswordLabel") || "Confirm Password"}
+              Confirm Password
             </label>
+
             <div className="relative mt-1.5">
               <Lock
                 size={18}
                 className="absolute left-4 top-1/2 -translate-y-1/2 text-[#718078]"
               />
+
               <input
                 type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                value={
+                  confirmPassword
+                }
+                onChange={(e) =>
+                  setConfirmPassword(
+                    e.target.value
+                  )
+                }
                 placeholder="Re-enter password"
-                className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none transition focus:border-[#124b35] focus:ring-2 focus:ring-[#124b35]/10"
+                className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none focus:border-[#124b35]"
               />
             </div>
           </div>
         )}
 
-        {/* 5. ANONYMOUS TOGGLE (Only shows during Citizen Login) */}
-        {selectedRole === "citizen" && mode === "login" && (
+        {/* ANONYMOUS */}
+        {selectedRole ===
+          "citizen" &&
+          mode === "login" && (
           <div className="rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-3.5">
             <label className="flex cursor-pointer items-start gap-3">
               <input
                 type="checkbox"
                 checked={anonymous}
-                onChange={(e) => setAnonymous(e.target.checked)}
+                onChange={(e) =>
+                  setAnonymous(
+                    e.target.checked
+                  )
+                }
                 className="mt-1 h-4 w-4 accent-[#124b35]"
               />
+
               <div>
                 <p className="text-xs font-bold text-[#14251c]">
-                  {t("login_anonymousLabel") || "File Anonymous Reports"}
+                  File Anonymous
+                  Reports
                 </p>
+
                 <p className="text-[11px] text-[#718078]">
-                  {t("login_anonymousDesc") || "Generates an anonymous alias (e.g. CIT-ANON-73817) when filing complaints."}
+                  Generates an
+                  anonymous alias
+                  when filing
+                  complaints.
                 </p>
               </div>
             </label>
           </div>
         )}
 
-        {/* 6. STATUS MESSAGES */}
+        {/* SUCCESS */}
         {successMessage && (
-          <p className="rounded-xl bg-[#eef5ef] px-4 py-3 text-xs font-semibold text-[#124b35] border border-[#dce4de]">
+          <p className="rounded-xl border border-[#dce4de] bg-[#eef5ef] px-4 py-3 text-xs font-semibold text-[#124b35]">
             {successMessage}
           </p>
         )}
 
+        {/* ERROR */}
         {error && (
           <p className="rounded-xl bg-[#fff0ee] px-4 py-3 text-xs font-semibold text-[#a33d36]">
             {error}
           </p>
         )}
 
-        {/* 7. SUBMIT BUTTON */}
+        {/* SUBMIT */}
         <button
           type="button"
-          onClick={handleAuthAction}
+          onClick={
+            handleAuthAction
+          }
           disabled={loading}
-          className="w-full rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b] active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+          className="w-full rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b] disabled:opacity-50"
         >
           {loading
-            ? t("login_authenticating") || "Authenticating..."
+            ? "Authenticating..."
             : mode === "forgot"
-            ? t("login_submitReset") || "Reset Password & Sign In"
-            : selectedRole === "citizen"
+            ? "Reset Password & Sign In"
+            : selectedRole ===
+              "citizen"
             ? mode === "register"
-              ? t("login_submitRegister") || "Create Account & Sign In"
-              : t("login_submitButton") || "Sign In as Citizen"
-            : selectedRole === "worker"
-            ? t("login_submitWorker") || "Login to Worker Portal"
-            : selectedRole === "admin"
+              ? "Create Account & Sign In"
+              : "Sign In as Citizen"
+            : selectedRole ===
+              "worker"
+            ? "Login to Worker Portal"
+            : selectedRole ===
+              "admin"
             ? "Login to Admin Panel"
-            : t("login_submitVoter") || "Sign In as Voter"}
+            : "Sign In as Voter"}
         </button>
 
-        {/* 8. SECURITY FOOTER */}
+        {/* SECURITY */}
         <div className="flex items-center justify-center gap-2 pt-2 text-xs text-[#718078]">
-          <ShieldCheck size={15} className="text-[#124b35]" />
-          <span>{t("login_encryptedSession") || "Encrypted account session"}</span>
+          <ShieldCheck
+            size={15}
+            className="text-[#124b35]"
+          />
+
+          <span>
+            {selectedRole ===
+            "citizen"
+              ? "Secured by Supabase Auth"
+              : "Employee ID Authentication"}
+          </span>
         </div>
       </div>
     </div>

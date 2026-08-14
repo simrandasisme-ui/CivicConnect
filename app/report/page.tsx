@@ -7,6 +7,7 @@ import {
   Camera,
   CheckCircle2,
   FileText,
+  Flame,
   ImageIcon,
   Loader2,
   MapPin,
@@ -35,7 +36,7 @@ export default function CitizenReportPage() {
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoName, setPhotoName] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  
+
   // Hidden input refs for triggering camera vs gallery
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -51,6 +52,8 @@ export default function CitizenReportPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [reportId, setReportId] = useState("");
+  const [isMerged, setIsMerged] = useState(false);
+  const [mergeMessage, setMergeMessage] = useState("");
 
   const categories = [
     { key: "cat_garbage", value: "Garbage" },
@@ -80,7 +83,7 @@ export default function CitizenReportPage() {
       },
       (error) => {
         setLocationLoading(false);
-        alert("Unable to detect location. Please grant permission.");
+        alert("Unable to detect location. Please grant location permissions.");
         console.error("GPS Error:", error);
       },
       { enableHighAccuracy: true, timeout: 10000 }
@@ -104,7 +107,6 @@ export default function CitizenReportPage() {
 
     setPhoto(file);
     setPhotoName(file.name);
-    // Create a local URL for the preview image
     setImagePreview(URL.createObjectURL(file));
   };
 
@@ -155,7 +157,7 @@ export default function CitizenReportPage() {
     setAudioBlob(null);
   };
 
-  /* ---------------- 4. FORM SUBMISSION ---------------- */
+  /* ---------------- 4. FORM SUBMISSION VIA /reports/submit ---------------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -167,14 +169,12 @@ export default function CitizenReportPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. SECURELY GET THE USER'S ACTUAL UUID FROM SUPABASE
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
-      if (authError || !user) {
-        throw new Error("You must be logged in to submit a report.");
-      }
+      // 1. Get current logged in user (or fallback to Anonymous)
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      const currentUserId = user.id; // This safely gets the UUID format required by the database
+      const currentUserEmail = user?.email || (anonymous ? "Anonymous Citizen" : "Registered Citizen");
 
       let uploadedPhotoUrl = "";
       let uploadedAudioUrl = "";
@@ -215,70 +215,92 @@ export default function CitizenReportPage() {
         }
       }
 
-      // Step C: Insert Record in Supabase Table using the valid UUID
-      const { data: insertedData, error: dbError } = await supabase
-        .from("reports")
-        .insert([
-          {
-            user_id: currentUserId, // UUID safely injected here
-            category,
-            description: description.trim() || null,
-            anonymous,
-            latitude: location?.latitude ?? null,
-            longitude: location?.longitude ?? null,
-            status: "Open", // Make sure this matches your DB constraint (e.g., 'Open' vs 'Submitted')
-            image_urls: [uploadedPhotoUrl],
-            voice_url: uploadedAudioUrl || null,
-            duplicate_count: 0,
-          },
-        ])
-        .select();
+      // Step C: Send report to the Local Deduplication API Endpoint
+      const payload = {
+        title: `${category} Issue`,
+        description: description.trim() || `${category} reported at current location.`,
+        category,
+        imageUrl: uploadedPhotoUrl,
+        voiceUrl: uploadedAudioUrl || null,
+        latitude: location?.latitude ?? 0,
+        longitude: location?.longitude ?? 0,
+        address: location
+          ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`
+          : "Location Captured via GPS",
+        reporterId: currentUserEmail,
+        anonymous,
+      };
 
-      if (dbError) {
-        throw new Error(`Database error: ${dbError.message}`);
+      const res = await fetch("/report/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        throw new Error(result.error || "Failed to submit report.");
       }
 
-      // Step D: Generate Tracking Reference ID
-      let assignedId = "";
-      if (anonymous) {
-        assignedId = `CIT-ANON-${Math.floor(10000 + Math.random() * 90000)}`;
-      } else if (insertedData && insertedData.length > 0) {
-        assignedId = insertedData[0].id.slice(0, 8).toUpperCase();
+      // Step D: Handle Response (Merged vs New)
+      if (result.merged) {
+        setIsMerged(true);
+        setMergeMessage(result.message);
+        setReportId(
+          result.parentReportId
+            ? result.parentReportId.slice(0, 8).toUpperCase()
+            : `BOOST-${Math.floor(1000 + Math.random() * 9000)}`
+        );
       } else {
-        assignedId = `CC-${Date.now().toString().slice(-6)}`;
+        setIsMerged(false);
+        setMergeMessage("");
+        const newId = result.report?.id
+          ? result.report.id.slice(0, 8).toUpperCase()
+          : `CC-${Date.now().toString().slice(-6)}`;
+        setReportId(newId);
       }
 
-      setReportId(assignedId);
       setSubmitted(true);
     } catch (err: unknown) {
       console.error("Submission failed:", err);
-      const msg = err instanceof Error ? err.message : "Failed to submit report. Please try again.";
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Failed to submit report. Please try again.";
       alert(msg);
     } finally {
       setIsSubmitting(false);
     }
   };
-  
+
   /* ---------------- SUCCESS SCREEN ---------------- */
   if (submitted) {
     return (
       <div className="mx-auto flex min-h-[75vh] max-w-xl items-center justify-center px-4 py-12">
         <div className="w-full rounded-3xl border border-[#dce4de] bg-white p-8 text-center shadow-xl sm:p-10">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[#eef5ef] text-[#124b35]">
-            <CheckCircle2 size={42} />
+          <div
+            className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full ${
+              isMerged ? "bg-amber-100 text-amber-700" : "bg-[#eef5ef] text-[#124b35]"
+            }`}
+          >
+            {isMerged ? <Flame size={42} className="animate-pulse" /> : <CheckCircle2 size={42} />}
           </div>
 
           <h2 className="mt-6 text-2xl font-bold text-[#14251c] sm:text-3xl">
-            Report Submitted Successfully!
+            {isMerged ? "Report Merged & Priority Boosted!" : "Report Submitted Successfully!"}
           </h2>
 
           <p className="mt-2 text-sm text-[#718078]">
-            Thank you for helping improve your community. Your issue has been logged and assigned for municipal action.
+            {isMerged
+              ? mergeMessage ||
+                "A matching report was already open within 25 meters. Your evidence has been attached to raise municipal priority."
+              : "Thank you for helping improve your community. Your issue has been logged and assigned for municipal action."}
           </p>
 
           <div className="mt-6 rounded-2xl bg-[#fafcf9] p-4 text-center border border-[#dce4de]">
             <p className="text-xs font-bold uppercase tracking-wider text-[#718078]">
-              Tracking Reference ID
+              {isMerged ? "Linked Master Ticket ID" : "Tracking Reference ID"}
             </p>
             <p className="mt-1 font-mono text-xl font-extrabold text-[#124b35]">
               #{reportId}
@@ -289,6 +311,8 @@ export default function CitizenReportPage() {
             type="button"
             onClick={() => {
               setSubmitted(false);
+              setIsMerged(false);
+              setMergeMessage("");
               setPhoto(null);
               setPhotoName("");
               setImagePreview(null);
@@ -315,16 +339,15 @@ export default function CitizenReportPage() {
         <h1 className="mt-1 text-3xl font-extrabold text-[#14251c] sm:text-4xl">
           {t("reportIssue") || "Report an Issue"}
         </h1>
-        <p className="mt-2 text-sm text-[#718078]">
-          {t("reportSubtext")}
-        </p>
+        <p className="mt-2 text-sm text-[#718078]">{t("reportSubtext")}</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* 1. CATEGORY SELECTOR */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
           <label className="text-base font-bold text-[#14251c]">
-            {t("selectCategory") || "Select Category"} <span className="text-red-500">*</span>
+            {t("selectCategory") || "Select Category"}{" "}
+            <span className="text-red-500">*</span>
           </label>
           <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             {categories.map((cat) => {
@@ -340,7 +363,7 @@ export default function CitizenReportPage() {
                       : "border-[#dce4de] bg-white text-[#526158] hover:bg-[#fafcf9]"
                   }`}
                 >
-                  {t(cat.key as keyof typeof import('@/context/LanguageContext').TranslationsMap)}
+                  {t(cat.key as keyof typeof import("@/context/LanguageContext").TranslationsMap)}
                 </button>
               );
             })}
@@ -351,17 +374,20 @@ export default function CitizenReportPage() {
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
           <div className="mb-4 flex items-center justify-between">
             <label className="text-base font-bold text-[#14251c]">
-              {t("uploadPhoto") || "Attach Evidence"} <span className="text-red-500">*</span>
+              {t("uploadPhoto") || "Attach Evidence"}{" "}
+              <span className="text-red-500">*</span>
             </label>
-            <span className="text-xs font-bold text-red-500">{t("requiredText")}</span>
+            <span className="text-xs font-bold text-red-500">
+              {t("requiredText")}
+            </span>
           </div>
 
           {/* IMAGE PREVIEW OR BUTTONS */}
           {imagePreview ? (
             <div className="relative overflow-hidden rounded-2xl border border-[#dce4de]">
-              <img 
-                src={imagePreview} 
-                alt="Issue preview" 
+              <img
+                src={imagePreview}
+                alt="Issue preview"
                 className="h-48 w-full object-cover"
               />
               <button
@@ -445,9 +471,7 @@ export default function CitizenReportPage() {
               {t("optionalText")}
             </span>
           </label>
-          <p className="mt-1 text-xs text-[#718078]">
-            {t("voiceHint")}
-          </p>
+          <p className="mt-1 text-xs text-[#718078]">{t("voiceHint")}</p>
 
           <div className="mt-4">
             {!isRecording && !audioUrl && (
@@ -497,9 +521,7 @@ export default function CitizenReportPage() {
           <label className="text-base font-bold text-[#14251c]">
             {t("attachGps") || "Attach GPS Location"}
           </label>
-          <p className="mt-1 text-xs text-[#718078]">
-            {t("gpsHint")}
-          </p>
+          <p className="mt-1 text-xs text-[#718078]">{t("gpsHint")}</p>
 
           <div className="mt-4">
             {!location ? (
@@ -543,9 +565,7 @@ export default function CitizenReportPage() {
               <p className="text-sm font-bold text-[#14251c]">
                 {t("submitAnonLabel")}
               </p>
-              <p className="text-xs text-[#718078]">
-                {t("anonHint")}
-              </p>
+              <p className="text-xs text-[#718078]">{t("anonHint")}</p>
             </div>
           </label>
 
@@ -557,7 +577,7 @@ export default function CitizenReportPage() {
             {isSubmitting ? (
               <>
                 <Loader2 size={20} className="animate-spin" />
-                <span>Submitting Report...</span>
+                <span>Processing & Checking Duplicates...</span>
               </>
             ) : (
               <>

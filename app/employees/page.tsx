@@ -9,11 +9,12 @@ import {
   CheckCircle2,
   Filter,
   Loader2,
-  ShieldCheck,
   Upload,
   User,
   Wrench,
   X,
+  Lock,
+  Edit,
 } from "lucide-react";
 
 type Report = {
@@ -29,160 +30,521 @@ type Report = {
   resolution_proof_url: string | null;
   resolution_notes: string | null;
   created_at: string;
+  assigned_worker_id?: string | null;
 };
 
 type WorkerProfile = {
+  id: string;
+  email: string;
   fullName: string;
   department: string;
   deptId: string;
-  phone: string;
+  role: string;
 };
+
+/* =========================================================
+   DEPARTMENT / CATEGORY MATCHING
+   ========================================================= */
+
+const DEPARTMENT_ALIASES: Record<string, string[]> = {
+  sanitation: [
+    "sanitation",
+    "garbage",
+    "waste",
+    "waste management",
+    "garbage collection",
+    "cleanliness",
+  ],
+
+  roads: [
+    "roads",
+    "road",
+    "public works",
+    "pothole",
+    "potholes",
+    "street",
+    "road maintenance",
+  ],
+
+  water: [
+    "water",
+    "water supply",
+    "water leakage",
+    "water leak",
+    "pipeline",
+    "pipelines",
+  ],
+
+  electricity: [
+    "electricity",
+    "electrical",
+    "power",
+    "street light",
+    "streetlight",
+    "lighting",
+  ],
+
+  drainage: [
+    "drainage",
+    "drain",
+    "sewer",
+    "sewage",
+    "flooding",
+    "stormwater",
+  ],
+
+  parks: [
+    "parks",
+    "park",
+    "garden",
+    "gardens",
+    "public garden",
+  ],
+};
+
+function normalizeText(value: string | null | undefined) {
+  return (value || "")
+    .toLowerCase()
+    .trim()
+    // strip zero-width / non-breaking / other invisible whitespace-like chars
+    .replace(/[\u00A0\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Converts a department/category into a canonical department.
+ */
+function getCanonicalDepartment(value: string | null | undefined) {
+  const normalized = normalizeText(value);
+
+  for (const [canonical, aliases] of Object.entries(DEPARTMENT_ALIASES)) {
+    if (
+      aliases.some(
+        (alias) =>
+          normalized === alias ||
+          normalized.includes(alias) ||
+          alias.includes(normalized)
+      )
+    ) {
+      return canonical;
+    }
+  }
+
+  return normalized;
+}
+
+/**
+ * Determines whether a report belongs to a worker's department.
+ */
+function reportMatchesDepartment(
+  reportCategory: string,
+  workerDepartment: string
+) {
+  if (normalizeText(reportCategory) === "other") {
+    return true;
+  }
+
+  const reportDepartment = getCanonicalDepartment(reportCategory);
+  const workerDept = getCanonicalDepartment(workerDepartment);
+
+  if (!reportDepartment || !workerDept) return false;
+
+  return reportDepartment === workerDept;
+}
 
 export default function EmployeeDashboardPage() {
   const { t } = useLanguage();
 
-  // Verification & Profile State
+  // =========================================================
+  // WORKER PROFILE
+  // =========================================================
+
   const [worker, setWorker] = useState<WorkerProfile | null>(null);
-  const [showVerificationModal, setShowVerificationModal] = useState(false);
-  const [formName, setFormName] = useState("");
-  const [formDept, setFormDept] = useState("Garbage");
-  const [formDeptId, setFormDeptId] = useState("");
-  const [formPhone, setFormPhone] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpInput, setOtpInput] = useState("");
-  const [verifying, setVerifying] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [authError, setAuthError] = useState(false);
 
-  // Tickets & Radius State
+  // =========================================================
+  // REPORTS
+  // =========================================================
+
   const [reports, setReports] = useState<Report[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState("All");
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [selectedStatusFilter, setSelectedStatusFilter] =
+    useState("All");
 
-  // Action Modal State
+  // =========================================================
+  // MODAL
+  // =========================================================
+
   const [activeReport, setActiveReport] = useState<Report | null>(null);
   const [newStatus, setNewStatus] = useState("In Progress");
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [briefReportNote, setBriefReportNote] = useState("");
   const [updating, setUpdating] = useState(false);
 
-  const departments = [
-    "Garbage",
-    "Pothole",
-    "Water Leakage",
-    "Electricity",
-    "Streetlight",
-    "Drainage",
-    "Other",
-  ];
+  // =========================================================
+  // LOAD WORKER
+  // =========================================================
 
   useEffect(() => {
-    const savedWorker = localStorage.getItem("civic_connect_worker");
-    if (savedWorker) {
+    const fetchWorkerProfile = async () => {
+      setLoadingProfile(true);
+      setAuthError(false);
+
       try {
-        const parsed = JSON.parse(savedWorker);
-        setWorker(parsed);
-        fetchDepartmentReports(parsed.department);
-      } catch {
-        setShowVerificationModal(true);
+        /*
+         * IMPORTANT:
+         *
+         * Worker login is NOT Supabase email authentication.
+         * UnifiedLogin stores the worker in localStorage after
+         * verifying EMP-xxxxx + password.
+         *
+         * Therefore we first read civic_connect_worker.
+         */
+
+        const storedWorker = window.localStorage.getItem(
+          "civic_connect_worker"
+        );
+
+        // TEMP DEBUG — remove after fixing
+        console.log("[DEBUG] Raw localStorage civic_connect_worker:", storedWorker);
+
+        if (storedWorker) {
+          try {
+            const parsedWorker = JSON.parse(storedWorker);
+
+            // TEMP DEBUG — remove after fixing
+            console.log("[DEBUG] Parsed worker from localStorage:", parsedWorker);
+
+            if (parsedWorker?.deptId) {
+              /*
+               * We have enough information to identify the worker.
+               * Now fetch the latest worker profile from the database
+               * using dept_id.
+               */
+
+              const { data: workerData, error: workerError } =
+                await supabase
+                  .from("workers")
+                  .select("*")
+                  .eq("dept_id", parsedWorker.deptId)
+                  .maybeSingle();
+
+              // TEMP DEBUG — remove after fixing
+              console.log("[DEBUG] DB lookup by dept_id:", parsedWorker.deptId, "-> result:", workerData, "error:", workerError);
+
+              if (workerError) {
+                console.error(
+                  "Worker database lookup error:",
+                  workerError
+                );
+              }
+
+              if (workerData) {
+                const profile: WorkerProfile = {
+                  id: workerData.id,
+                  email: workerData.email || "",
+                  fullName:
+                    workerData.name ||
+                    workerData.full_name ||
+                    parsedWorker.fullName ||
+                    "Municipal Worker",
+                  department:
+                    workerData.department ||
+                    parsedWorker.department ||
+                    "",
+                  deptId:
+                    workerData.dept_id ||
+                    parsedWorker.deptId,
+                  role: workerData.role || "worker",
+                };
+
+                // TEMP DEBUG — remove after fixing
+                console.log("[DEBUG] Final worker profile (from DB row):", profile);
+                console.log("[DEBUG] JSON of department string:", JSON.stringify(profile.department));
+
+                setWorker(profile);
+
+                await fetchDepartmentReports(profile);
+
+                return;
+              }
+
+              /*
+               * Database profile was not found, but local login
+               * information exists.
+               *
+               * This allows the dashboard to still identify the
+               * worker while we debug the database/RLS separately.
+               */
+
+              const fallbackProfile: WorkerProfile = {
+                id: parsedWorker.id || "",
+                email: parsedWorker.email || "",
+                fullName:
+                  parsedWorker.fullName || "Municipal Worker",
+                department: parsedWorker.department || "",
+                deptId: parsedWorker.deptId,
+                role: parsedWorker.role || "worker",
+              };
+
+              // TEMP DEBUG — remove after fixing
+              console.warn("[DEBUG] No DB row found for dept_id — using localStorage fallback profile:", fallbackProfile);
+              console.log("[DEBUG] JSON of fallback department string:", JSON.stringify(fallbackProfile.department));
+
+              setWorker(fallbackProfile);
+
+              await fetchDepartmentReports(fallbackProfile);
+
+              return;
+            }
+          } catch (storageError) {
+            console.error(
+              "Invalid stored worker session:",
+              storageError
+            );
+          }
+        }
+
+        /*
+         * FALLBACK:
+         *
+         * If there is no custom worker session, try Supabase Auth.
+         */
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          setAuthError(true);
+          return;
+        }
+
+        const { data: workerData, error: workerError } =
+          await supabase
+            .from("workers")
+            .select("*")
+            .eq("id", user.id)
+            .maybeSingle();
+
+        if (workerError || !workerData) {
+          console.error(
+            "Worker profile error:",
+            workerError
+          );
+
+          setAuthError(true);
+          return;
+        }
+
+        const profile: WorkerProfile = {
+          id: workerData.id,
+          email: workerData.email || "",
+          fullName:
+            workerData.name ||
+            workerData.full_name ||
+            "Municipal Worker",
+          department: workerData.department || "",
+          deptId: workerData.dept_id || "",
+          role: workerData.role || "worker",
+        };
+
+        setWorker(profile);
+
+        await fetchDepartmentReports(profile);
+      } catch (error) {
+        console.error("Profile fetch error:", error);
+        setAuthError(true);
+      } finally {
+        setLoadingProfile(false);
       }
-    } else {
-      setShowVerificationModal(true);
-    }
+    };
+
+    fetchWorkerProfile();
   }, []);
 
-  const fetchDepartmentReports = async (department: string) => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("reports")
-      .select("*")
-      .eq("category", department)
-      .order("created_at", { ascending: false });
+  // =========================================================
+  // FETCH REPORTS
+  // =========================================================
 
-    if (!error && data) {
-      setReports(data);
-    }
-    setLoading(false);
-  };
-
-  /* ---------------- PHONE OTP VERIFICATION ---------------- */
-  const handleSendOtp = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formName.trim() || !formDeptId.trim() || !formPhone.trim()) {
-      alert("Please fill in all verification fields.");
-      return;
-    }
-    setOtpSent(true);
-  };
-
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (otpInput !== "1234" && otpInput !== "9999") {
-      alert("Invalid OTP code. For demo testing, enter '1234'.");
-      return;
-    }
-
-    setVerifying(true);
+  const fetchDepartmentReports = async (
+    currentWorker: WorkerProfile
+  ) => {
+    setLoadingReports(true);
 
     try {
-      const profile: WorkerProfile = {
-        fullName: formName.trim(),
-        department: formDept,
-        deptId: formDeptId.trim(),
-        phone: formPhone.trim(),
-      };
+      /*
+       * We intentionally fetch reports first and then perform
+       * department matching in the browser.
+       *
+       * This makes the matching flexible while we standardize
+       * department/category names in the database later.
+       */
 
-      await supabase.from("workers").upsert([
-        {
-          dept_id: profile.deptId,
-          full_name: profile.fullName,
-          department: profile.department,
-          phone_number: profile.phone,
-          is_verified: true,
-        },
-      ]);
+      const { data, error } = await supabase
+        .from("reports")
+        .select("*")
+        .order("created_at", {
+          ascending: false,
+        });
 
-      localStorage.setItem("civic_connect_worker", JSON.stringify(profile));
-      setWorker(profile);
-      setShowVerificationModal(false);
-      fetchDepartmentReports(profile.department);
-    } catch (err: unknown) {
-      console.error("Worker registration error:", err);
+      if (error) {
+        console.error(
+          "REPORT FETCH ERROR:",
+          error
+        );
+
+        setReports([]);
+        return;
+      }
+
+      const allReports = (data || []) as Report[];
+
+      /*
+       * Show:
+       *
+       * 1. Reports explicitly assigned to this worker
+       * OR
+       *
+       * 2. Reports whose category belongs to this worker's
+       *    department.
+       */
+
+      const departmentReports = allReports.filter((report) => {
+        const explicitlyAssigned =
+          report.assigned_worker_id &&
+          report.assigned_worker_id === currentWorker.id;
+
+        const sameDepartment = reportMatchesDepartment(
+          report.category,
+          currentWorker.department
+        );
+
+        // TEMP DEBUG — remove after fixing
+        console.log("[DEBUG] Match check:", {
+          reportId: report.id,
+          reportCategoryRaw: report.category,
+          reportCategoryJSON: JSON.stringify(report.category),
+          reportCanonical: getCanonicalDepartment(report.category),
+          workerDepartmentRaw: currentWorker.department,
+          workerDepartmentJSON: JSON.stringify(currentWorker.department),
+          workerCanonical: getCanonicalDepartment(currentWorker.department),
+          explicitlyAssigned,
+          sameDepartment,
+        });
+
+        return explicitlyAssigned || sameDepartment;
+      });
+
+      console.log(
+        "Worker department:",
+        currentWorker.department
+      );
+
+      console.log(
+        "Canonical department:",
+        getCanonicalDepartment(
+          currentWorker.department
+        )
+      );
+
+      console.log(
+        "All reports:",
+        allReports.length
+      );
+
+      console.log(
+        "Department reports:",
+        departmentReports.length
+      );
+
+      setReports(departmentReports);
+    } catch (error) {
+      console.error(
+        "Failed to fetch department reports:",
+        error
+      );
+
+      setReports([]);
     } finally {
-      setVerifying(false);
+      setLoadingReports(false);
     }
   };
 
-  /* ---------------- UPDATE WORKER TICKET ---------------- */
-  const handleUpdateTicket = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeReport) return;
+  // =========================================================
+  // UPDATE REPORT
+  // =========================================================
 
-    if (newStatus === "Completed" && !proofFile) {
-      alert("An 'After Photo' proof is required to mark an issue as Completed.");
+  const handleUpdateTicket = async (
+    e: React.FormEvent
+  ) => {
+    e.preventDefault();
+
+    if (!activeReport || !worker) return;
+
+    if (
+      newStatus === "Completed" &&
+      !proofFile &&
+      !activeReport.resolution_proof_url
+    ) {
+      alert(
+        "An 'After Photo' proof is required to mark an issue as Completed."
+      );
       return;
     }
 
     setUpdating(true);
 
     try {
-      let resolutionProofUrl = activeReport.resolution_proof_url;
+      let resolutionProofUrl =
+        activeReport.resolution_proof_url;
+
+      // =====================================================
+      // UPLOAD RESOLUTION PROOF
+      // =====================================================
 
       if (proofFile) {
-        const fileExt = proofFile.name.split(".").pop() || "jpg";
-        const fileName = `resolution_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `resolution-proofs/${fileName}`;
+        const fileExt =
+          proofFile.name.split(".").pop() || "jpg";
 
-        const { error: uploadError } = await supabase.storage
-          .from("issue-media")
-          .upload(filePath, proofFile, { contentType: proofFile.type });
+        const fileName = `resolution_${Date.now()}_${Math.random()
+          .toString(36)
+          .substring(7)}.${fileExt}`;
 
-        if (uploadError) throw uploadError;
+        const filePath =
+          `resolution-proofs/${fileName}`;
 
-        const { data: urlData } = supabase.storage
-          .from("issue-media")
-          .getPublicUrl(filePath);
+        const { error: uploadError } =
+          await supabase.storage
+            .from("issue-media")
+            .upload(
+              filePath,
+              proofFile,
+              {
+                contentType: proofFile.type,
+              }
+            );
 
-        resolutionProofUrl = urlData.publicUrl;
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        const { data: urlData } =
+          supabase.storage
+            .from("issue-media")
+            .getPublicUrl(filePath);
+
+        resolutionProofUrl =
+          urlData.publicUrl;
       }
+
+      // =====================================================
+      // CONVERT UI STATUS TO DATABASE STATUS
+      // =====================================================
 
       const dbStatus =
         newStatus === "Not Started"
@@ -191,94 +553,240 @@ export default function EmployeeDashboardPage() {
           ? "Resolved"
           : "In Progress";
 
-      const { error: updateError } = await supabase
-        .from("reports")
-        .update({
-          status: dbStatus,
-          resolution_proof_url: resolutionProofUrl,
-          resolution_notes: briefReportNote.trim() || null,
-          assigned_worker_id: worker?.deptId,
-        })
-        .eq("id", activeReport.id);
+      // =====================================================
+      // UPDATE REPORT
+      // =====================================================
 
-      if (updateError) throw updateError;
+      const { error: updateError } =
+        await supabase
+          .from("reports")
+          .update({
+            status: dbStatus,
+            resolution_proof_url:
+              resolutionProofUrl,
+            resolution_notes:
+              briefReportNote.trim() || null,
+            assigned_worker_id:
+              worker.id || null,
+          })
+          .eq("id", activeReport.id);
 
-      if (worker) {
-        fetchDepartmentReports(worker.department);
+      if (updateError) {
+        throw updateError;
       }
+
+      await fetchDepartmentReports(worker);
+
       setActiveReport(null);
       setProofFile(null);
       setBriefReportNote("");
     } catch (err: unknown) {
-      console.error("Failed to update status:", err);
-      const msg = err instanceof Error ? err.message : "Failed to update ticket.";
-      alert(msg);
+      console.error(
+        "Failed to update status:",
+        err
+      );
+
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Failed to update ticket.";
+
+      alert(message);
     } finally {
       setUpdating(false);
     }
   };
 
+  // =========================================================
+  // FILTER
+  // =========================================================
+
   const filteredReports =
     selectedStatusFilter === "All"
       ? reports
-      : reports.filter((r) => {
-          if (selectedStatusFilter === "Not Started") return r.status === "Open";
-          if (selectedStatusFilter === "In Progress") return r.status === "In Progress";
-          if (selectedStatusFilter === "Completed") return r.status === "Resolved";
+      : reports.filter((report) => {
+          if (
+            selectedStatusFilter ===
+            "Not Started"
+          ) {
+            return report.status === "Open";
+          }
+
+          if (
+            selectedStatusFilter ===
+            "In Progress"
+          ) {
+            return report.status === "In Progress";
+          }
+
+          if (
+            selectedStatusFilter ===
+            "Completed"
+          ) {
+            return report.status === "Resolved";
+          }
+
           return true;
         });
 
+  // =========================================================
+  // LOADING
+  // =========================================================
+
+  if (loadingProfile) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <Loader2
+          className="animate-spin text-[#124b35]"
+          size={32}
+        />
+      </div>
+    );
+  }
+
+  // =========================================================
+  // ACCESS DENIED
+  // =========================================================
+
+  if (authError || !worker) {
+    return (
+      <div className="mx-auto flex min-h-[50vh] max-w-md items-center justify-center px-4">
+        <div className="w-full rounded-3xl border border-[#dce4de] bg-white p-8 text-center shadow-lg">
+          <AlertCircle
+            size={48}
+            className="mx-auto mb-4 text-red-500"
+          />
+
+          <h2 className="text-xl font-bold text-[#14251c]">
+            Access Denied
+          </h2>
+
+          <p className="mt-2 text-sm text-[#718078]">
+            We could not verify your worker
+            profile. Please log in again using
+            your Employee ID.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================
+  // DASHBOARD
+  // =========================================================
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      {/* HEADER BAR */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
+
+      {/* HEADER */}
+      <div className="mb-8 flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-[#dce4de] bg-white px-3.5 py-1 text-xs font-bold text-[#124b35]">
-            <Building2 size={14} /> {t("opsDashboard")}
+            <Building2 size={14} />
+            {t("opsDashboard") ||
+              "Operations Dashboard"}
           </div>
+
           <h1 className="mt-2 text-3xl font-extrabold text-[#14251c]">
-            {t("workerPortalTitle")}
+            {t("workerPortalTitle") ||
+              "Operations Portal"}
           </h1>
+
+          <p className="mt-2 text-sm text-[#718078]">
+            Showing complaints for the{" "}
+            <span className="font-bold text-[#124b35]">
+              {worker.department}
+            </span>{" "}
+            department.
+          </p>
         </div>
 
-        {/* WORKER IDENTITY CARD */}
-        {worker && (
-          <div className="flex items-center gap-3 rounded-2xl border border-[#dce4de] bg-white p-3.5 shadow-sm">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#124b35] text-white">
-              <User size={20} />
+        {/* WORKER PROFILE */}
+        <div className="flex w-full flex-col gap-3 rounded-2xl border border-[#dce4de] bg-white p-4 shadow-sm lg:w-96">
+
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#124b35] text-white">
+              <User size={24} />
             </div>
+
             <div>
-              <p className="text-xs font-bold text-[#14251c]">{worker.fullName}</p>
-              <p className="text-[11px] text-[#718078]">
-                ID: {worker.deptId} • {worker.department} Dept
+              <p className="text-base font-bold text-[#14251c]">
+                {worker.fullName}
+              </p>
+
+              <p className="text-xs text-[#718078]">
+                ID: {worker.deptId} •{" "}
+                {worker.department} Dept
               </p>
             </div>
+          </div>
+
+          {worker.role === "admin" ? (
             <button
               type="button"
-              onClick={() => setShowVerificationModal(true)}
-              className="ml-2 rounded-lg border border-[#dce4de] p-1.5 text-xs font-bold text-[#718078] hover:bg-[#fafcf9]"
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-[#124b35] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b]"
             >
-              {t("switchUser")}
+              <Edit size={16} />
+              Edit Profile settings
             </button>
-          </div>
-        )}
+          ) : (
+            <div className="mt-2 rounded-xl border border-[#dce4de] bg-[#eef5ef] px-4 py-3">
+              <p className="flex items-center gap-2 text-[11px] font-bold text-[#718078]">
+                <Lock
+                  size={14}
+                  className="text-[#124b35]"
+                />
+                Profile locked & managed by
+                Municipal Admin.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* TICKET STATUS FILTERS */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6">
-        <Filter size={16} className="text-[#718078] shrink-0" />
+      {/* FILTERS */}
+      <div className="mb-6 flex items-center gap-2 overflow-x-auto pb-4">
+        <Filter
+          size={16}
+          className="shrink-0 text-[#718078]"
+        />
+
         {[
-          { key: "All", label: t("filterAll") },
-          { key: "Not Started", label: t("filterNotStarted") },
-          { key: "In Progress", label: t("filterInProgress") },
-          { key: "Completed", label: t("filterCompleted") },
+          {
+            key: "All",
+            label: t("filterAll") || "All",
+          },
+          {
+            key: "Not Started",
+            label:
+              t("filterNotStarted") ||
+              "Not Started",
+          },
+          {
+            key: "In Progress",
+            label:
+              t("filterInProgress") ||
+              "In Progress",
+          },
+          {
+            key: "Completed",
+            label:
+              t("filterCompleted") ||
+              "Completed",
+          },
         ].map((filterObj) => (
           <button
             key={filterObj.key}
             type="button"
-            onClick={() => setSelectedStatusFilter(filterObj.key)}
-            className={`rounded-xl px-4 py-2 text-xs font-bold transition whitespace-nowrap ${
-              selectedStatusFilter === filterObj.key
+            onClick={() =>
+              setSelectedStatusFilter(
+                filterObj.key
+              )
+            }
+            className={`whitespace-nowrap rounded-xl px-4 py-2 text-xs font-bold transition ${
+              selectedStatusFilter ===
+              filterObj.key
                 ? "bg-[#124b35] text-white"
                 : "border border-[#dce4de] bg-white text-[#526158] hover:bg-[#fafcf9]"
             }`}
@@ -288,102 +796,145 @@ export default function EmployeeDashboardPage() {
         ))}
       </div>
 
-      {/* ASSIGNED TICKETS LIST */}
-      {loading ? (
+      {/* REPORTS */}
+      {loadingReports ? (
         <div className="flex h-64 w-full items-center justify-center gap-2 rounded-3xl border border-[#dce4de] bg-white">
-          <Loader2 className="animate-spin text-[#124b35]" size={24} />
+          <Loader2
+            className="animate-spin text-[#124b35]"
+            size={24}
+          />
+
           <span className="text-sm font-bold text-[#124b35]">
-            Fetching assigned ward tickets...
+            Fetching department tickets...
           </span>
         </div>
       ) : filteredReports.length === 0 ? (
-        <div className="rounded-3xl border border-[#dce4de] bg-white p-12 text-center">
-          <CheckCircle2 size={40} className="mx-auto text-[#124b35]" />
+        <div className="rounded-3xl border border-[#dce4de] bg-white p-12 text-center shadow-sm">
+
+          <CheckCircle2
+            size={40}
+            className="mx-auto text-[#124b35]"
+          />
+
           <h3 className="mt-3 text-lg font-bold text-[#14251c]">
-            No assigned complaints
+            No complaints for your department
           </h3>
-          <p className="text-xs text-[#718078] mt-1">
-            There are currently no tickets matching this filter in your department.
+
+          <p className="mt-1 text-xs text-[#718078]">
+            No reports currently match the{" "}
+            <span className="font-bold">
+              {worker.department}
+            </span>{" "}
+            department.
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+
           {filteredReports.map((report) => (
             <div
               key={report.id}
-              className="flex flex-col justify-between rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm transition hover:shadow-md"
+              className="flex flex-col justify-between rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
             >
               <div>
-                {/* TOP STATUS BAR */}
+
+                {/* CATEGORY + STATUS */}
                 <div className="flex items-center justify-between gap-2">
+
                   <span className="rounded-lg bg-[#eef5ef] px-2.5 py-1 text-xs font-bold text-[#124b35]">
                     {report.category}
                   </span>
 
                   <span
                     className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                      report.status === "Resolved"
+                      report.status ===
+                      "Resolved"
                         ? "bg-emerald-100 text-emerald-800"
-                        : report.status === "In Progress"
+                        : report.status ===
+                          "In Progress"
                         ? "bg-amber-100 text-amber-800"
                         : "bg-red-100 text-red-800"
                     }`}
                   >
                     {report.status === "Open"
-                      ? t("filterNotStarted")
-                      : report.status === "Resolved"
-                      ? t("filterCompleted")
-                      : t("filterInProgress")}
+                      ? "Not Started"
+                      : report.status ===
+                        "Resolved"
+                      ? "Completed"
+                      : "In Progress"}
                   </span>
                 </div>
 
-                {/* DUPLICATE REPORT BADGE */}
-                {report.duplicate_count > 0 && (
-                  <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-orange-50 px-2.5 py-1 text-[11px] font-bold text-orange-800 border border-orange-200">
+                {/* DUPLICATES */}
+                {report.duplicate_count >
+                  0 && (
+                  <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-[11px] font-bold text-orange-800">
                     <AlertCircle size={13} />
-                    <span>Reported by {report.duplicate_count + 1} citizens</span>
+
+                    Reported by{" "}
+                    {report.duplicate_count +
+                      1}{" "}
+                    citizens
                   </div>
                 )}
 
                 {/* DESCRIPTION */}
-                <p className="mt-3 text-sm text-[#14251c] line-clamp-3">
-                  {report.description || "No written text provided."}
+                <p className="mt-3 line-clamp-3 text-sm text-[#14251c]">
+                  {report.description ||
+                    "No written text provided."}
                 </p>
 
-                {/* CITIZEN COMPLAINT IMAGE */}
-                {report.image_urls && report.image_urls.length > 0 && (
-                  <div className="mt-4">
-                    <img
-                      src={report.image_urls[0]}
-                      alt="Complaint"
-                      className="h-40 w-full rounded-2xl object-cover border border-[#dce4de]"
+                {/* IMAGE */}
+                {report.image_urls &&
+                  report.image_urls.length >
+                    0 && (
+                    <div className="mt-4">
+                      <img
+                        src={
+                          report.image_urls[0]
+                        }
+                        alt="Complaint"
+                        className="h-40 w-full rounded-2xl border border-[#dce4de] object-cover"
+                      />
+                    </div>
+                  )}
+
+                {/* VOICE */}
+                {report.voice_url && (
+                  <div className="mt-3 rounded-2xl border border-[#dce4de] bg-[#f0f4f1] p-3">
+                    <p className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#124b35]">
+                      🎙️ Voice Recording
+                    </p>
+
+                    <audio
+                      controls
+                      src={report.voice_url}
+                      className="h-8 w-full"
                     />
                   </div>
                 )}
 
-                {/* CITIZEN VOICE RECORDING */}
-                {report.voice_url && (
-                  <div className="mt-3 rounded-2xl bg-[#f0f4f1] p-3 border border-[#dce4de]">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-[#124b35] mb-1 flex items-center gap-1">
-                      🎙️ {t("citizenVoiceRecording")}
-                    </p>
-                    <audio controls src={report.voice_url} className="w-full h-8" />
-                  </div>
-                )}
-
-                {/* RESOLUTION PROOF DISPLAY */}
+                {/* RESOLUTION PROOF */}
                 {report.resolution_proof_url && (
-                  <div className="mt-3 rounded-2xl bg-emerald-50 p-2.5 border border-emerald-200">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 mb-1 flex items-center gap-1">
-                      <CheckCircle2 size={12} /> {t("workCompletedProof")}
+                  <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-2.5">
+
+                    <p className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                      <CheckCircle2
+                        size={12}
+                      />
+                      Completion Proof
                     </p>
+
                     <img
-                      src={report.resolution_proof_url}
+                      src={
+                        report.resolution_proof_url
+                      }
                       alt="Proof"
                       className="h-28 w-full rounded-xl object-cover"
                     />
+
                     {report.resolution_notes && (
-                      <p className="mt-1.5 text-xs text-emerald-900 italic">
+                      <p className="mt-1.5 text-xs italic text-emerald-900">
                         "{report.resolution_notes}"
                       </p>
                     )}
@@ -391,27 +942,42 @@ export default function EmployeeDashboardPage() {
                 )}
               </div>
 
-              {/* ACTION FOOTER */}
-              <div className="mt-6 pt-4 border-t border-[#dce4de] flex items-center justify-between">
+              {/* FOOTER */}
+              <div className="mt-6 flex items-center justify-between border-t border-[#dce4de] pt-4">
+
                 <span className="text-[11px] text-[#718078]">
-                  Logged: {new Date(report.created_at).toLocaleDateString()}
+                  Logged:{" "}
+                  {new Date(
+                    report.created_at
+                  ).toLocaleDateString()}
                 </span>
 
                 <button
                   type="button"
                   onClick={() => {
-                    setActiveReport(report);
+                    setActiveReport(
+                      report
+                    );
+
                     setNewStatus(
-                      report.status === "Open"
+                      report.status ===
+                        "Open"
                         ? "Not Started"
-                        : report.status === "Resolved"
+                        : report.status ===
+                          "Resolved"
                         ? "Completed"
                         : "In Progress"
                     );
+
+                    setBriefReportNote(
+                      report.resolution_notes ||
+                        ""
+                    );
                   }}
-                  className="rounded-xl bg-[#124b35] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0d3d2b] flex items-center gap-1.5"
+                  className="flex items-center gap-1.5 rounded-xl bg-[#124b35] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0d3d2b]"
                 >
-                  <Wrench size={14} /> {t("updateTask")}
+                  <Wrench size={14} />
+                  Update Task
                 </button>
               </div>
             </div>
@@ -419,225 +985,173 @@ export default function EmployeeDashboardPage() {
         </div>
       )}
 
-      {/* WORKER OTP VERIFICATION MODAL */}
-      {showVerificationModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-3xl border border-[#dce4de] bg-white p-6 shadow-2xl sm:p-8">
-            <div className="text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#124b35] text-white">
-                <ShieldCheck size={24} />
-              </div>
-              <h3 className="mt-3 text-xl font-bold text-[#14251c]">
-                Municipal Worker Verification
-              </h3>
-              <p className="mt-1 text-xs text-[#718078]">
-                Enter your department details and verify via phone OTP
-              </p>
-            </div>
+      {/* =====================================================
+          UPDATE MODAL
+      ===================================================== */}
 
-            {!otpSent ? (
-              <form onSubmit={handleSendOtp} className="mt-6 space-y-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-[#718078]">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formName}
-                    onChange={(e) => setFormName(e.target.value)}
-                    placeholder="e.g. Rajesh Kumar Swain"
-                    className="mt-1 w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] p-3 text-sm outline-none focus:border-[#124b35]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase text-[#718078]">
-                    Assigned Department
-                  </label>
-                  <select
-                    value={formDept}
-                    onChange={(e) => setFormDept(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] p-3 text-sm outline-none focus:border-[#124b35]"
-                  >
-                    {departments.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase text-[#718078]">
-                    Department ID
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formDeptId}
-                    onChange={(e) => setFormDeptId(e.target.value)}
-                    placeholder="e.g. EMP-4092"
-                    className="mt-1 w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] p-3 text-sm outline-none focus:border-[#124b35]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase text-[#718078]">
-                    Private Phone Number
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    value={formPhone}
-                    onChange={(e) => setFormPhone(e.target.value)}
-                    placeholder="+91 98765 43210"
-                    className="mt-1 w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] p-3 text-sm outline-none focus:border-[#124b35]"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="mt-2 w-full rounded-xl bg-[#124b35] py-3 text-xs font-bold text-white transition hover:bg-[#0d3d2b]"
-                >
-                  Send Verification OTP
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={handleVerifyOtp} className="mt-6 space-y-4">
-                <div className="rounded-2xl bg-[#eef5ef] p-3 text-center border border-[#dce4de]">
-                  <p className="text-xs text-[#124b35] font-semibold">
-                    OTP sent to {formPhone}
-                  </p>
-                  <p className="text-[10px] text-[#718078] mt-0.5">
-                    (Use demo code: <strong className="font-mono">1234</strong>)
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase text-[#718078]">
-                    Enter 4-Digit OTP
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={4}
-                    required
-                    value={otpInput}
-                    onChange={(e) => setOtpInput(e.target.value)}
-                    placeholder="1234"
-                    className="mt-1 w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] p-3 text-center font-mono text-lg font-bold outline-none focus:border-[#124b35]"
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setOtpSent(false)}
-                    className="w-1/3 rounded-xl border border-[#dce4de] py-3 text-xs font-bold text-[#526158]"
-                  >
-                    Back
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={verifying}
-                    className="w-2/3 rounded-xl bg-[#124b35] py-3 text-xs font-bold text-white"
-                  >
-                    {verifying ? "Verifying..." : "Verify & Sign In"}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* UPDATE TASK MODAL WITH PROOF & BRIEF REPORT */}
       {activeReport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-3xl border border-[#dce4de] bg-white p-6 shadow-2xl sm:p-8">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-bold text-[#14251c]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#14251c]/40 p-4 backdrop-blur-sm">
+
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-[#dce4de] bg-white shadow-2xl">
+
+            <div className="flex items-center justify-between border-b border-[#dce4de] bg-[#fafcf9] px-6 py-4">
+
+              <h3 className="text-lg font-bold text-[#14251c]">
                 Update Assigned Duty
               </h3>
+
               <button
                 type="button"
-                onClick={() => setActiveReport(null)}
-                className="rounded-lg p-1 text-[#718078] hover:bg-[#fafcf9]"
+                onClick={() =>
+                  setActiveReport(null)
+                }
+                className="rounded-full p-2 text-[#718078] transition hover:bg-[#eef5ef] hover:text-[#124b35]"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <form onSubmit={handleUpdateTicket} className="mt-6 space-y-5">
+            <form
+              onSubmit={handleUpdateTicket}
+              className="space-y-5 p-6"
+            >
+
+              {/* REPORT SUMMARY */}
+              <div className="rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-4">
+
+                <p className="text-xs font-bold uppercase tracking-wider text-[#718078]">
+                  Report
+                </p>
+
+                <p className="mt-1 font-bold text-[#14251c]">
+                  {activeReport.category}
+                </p>
+
+                <p className="mt-2 text-sm text-[#718078]">
+                  {activeReport.description ||
+                    "No description provided."}
+                </p>
+              </div>
+
+              {/* STATUS */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[#718078]">
                   Select Work Status
                 </label>
+
                 <select
                   value={newStatus}
-                  onChange={(e) => setNewStatus(e.target.value)}
+                  onChange={(e) =>
+                    setNewStatus(
+                      e.target.value
+                    )
+                  }
                   className="mt-2 w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] p-3 text-sm font-semibold outline-none focus:border-[#124b35]"
                 >
-                  <option value="Not Started">Not Started Yet</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Completed">Completed</option>
+                  <option value="Not Started">
+                    Not Started Yet
+                  </option>
+
+                  <option value="In Progress">
+                    In Progress
+                  </option>
+
+                  <option value="Completed">
+                    Completed
+                  </option>
                 </select>
               </div>
 
+              {/* NOTES */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[#718078]">
                   Brief Report Message to Citizen
                 </label>
+
                 <textarea
                   rows={3}
-                  value={briefReportNote}
-                  onChange={(e) => setBriefReportNote(e.target.value)}
+                  value={
+                    briefReportNote
+                  }
+                  onChange={(e) =>
+                    setBriefReportNote(
+                      e.target.value
+                    )
+                  }
                   placeholder="e.g. Waste cleared completely and disinfectant sprayed in area..."
                   className="mt-2 w-full resize-none rounded-xl border border-[#dce4de] bg-[#fafcf9] p-3 text-sm outline-none focus:border-[#124b35]"
                 />
               </div>
 
+              {/* PROOF */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[#718078]">
-                  Upload Completed Work Proof (After Photo)
-                  {newStatus === "Completed" && (
-                    <span className="text-red-500 ml-1">* Required</span>
+
+                  Upload Completed Work Proof
+
+                  {newStatus ===
+                    "Completed" && (
+                    <span className="ml-1 text-red-500">
+                      * Required
+                    </span>
                   )}
                 </label>
 
                 <label className="mt-2 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#dce4de] bg-[#fafcf9] p-6 text-center hover:border-[#124b35]">
-                  <Upload size={24} className="text-[#124b35]" />
+
+                  <Upload
+                    size={24}
+                    className="text-[#124b35]"
+                  />
+
                   <p className="mt-2 text-xs font-bold text-[#14251c]">
-                    {proofFile ? proofFile.name : "Attach 'After Photo' proof"}
+                    {proofFile
+                      ? proofFile.name
+                      : "Attach 'After Photo' proof"}
                   </p>
+
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                    onChange={(e) =>
+                      setProofFile(
+                        e.target.files?.[0] ||
+                          null
+                      )
+                    }
                     className="hidden"
                   />
                 </label>
               </div>
 
+              {/* BUTTONS */}
               <div className="flex gap-3 pt-2">
+
                 <button
                   type="button"
-                  onClick={() => setActiveReport(null)}
-                  className="w-1/2 rounded-xl border border-[#dce4de] py-3 text-xs font-bold text-[#526158]"
+                  onClick={() =>
+                    setActiveReport(null)
+                  }
+                  className="w-1/3 rounded-xl border border-[#dce4de] py-3 text-xs font-bold text-[#526158] hover:bg-[#fafcf9]"
                 >
                   Cancel
                 </button>
+
                 <button
                   type="submit"
                   disabled={updating}
-                  className="w-1/2 flex items-center justify-center gap-2 rounded-xl bg-[#124b35] py-3 text-xs font-bold text-white disabled:opacity-50"
+                  className="flex w-2/3 items-center justify-center gap-2 rounded-xl bg-[#124b35] py-3 text-xs font-bold text-white transition hover:bg-[#0d3d2b] disabled:opacity-50"
                 >
                   {updating ? (
-                    <Loader2 size={16} className="animate-spin" />
+                    <Loader2
+                      size={16}
+                      className="animate-spin"
+                    />
                   ) : (
                     "Save & Notify Citizen"
                   )}
                 </button>
+
               </div>
             </form>
           </div>
