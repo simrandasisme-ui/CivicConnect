@@ -53,13 +53,13 @@ export default function CitizenReportPage() {
   const [reportId, setReportId] = useState("");
 
   const categories = [
-    "Garbage",
-    "Pothole",
-    "Water Leakage",
-    "Electricity",
-    "Streetlight",
-    "Drainage",
-    "Other",
+    { key: "cat_garbage", value: "Garbage" },
+    { key: "cat_pothole", value: "Pothole" },
+    { key: "cat_water", value: "Water Leakage" },
+    { key: "cat_electricity", value: "Electricity" },
+    { key: "cat_streetlight", value: "Streetlight" },
+    { key: "cat_drainage", value: "Drainage" },
+    { key: "cat_other", value: "Other" },
   ];
 
   /* ---------------- 1. GPS LOCATION ---------------- */
@@ -313,13 +313,13 @@ export default function CitizenReportPage() {
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-8">
         <span className="text-xs font-bold uppercase tracking-widest text-[#124b35]">
-          Citizen Intake
+          {t("citizenIntake")}
         </span>
         <h1 className="mt-1 text-3xl font-extrabold text-[#14251c] sm:text-4xl">
           {t("reportIssue") || "Report an Issue"}
         </h1>
         <p className="mt-2 text-sm text-[#718078]">
-          Upload photos, describe the problem, provide voice notes, or share your GPS location to help municipal teams fix it fast.
+          {t("reportSubtext")}
         </p>
       </div>
 
@@ -331,19 +331,19 @@ export default function CitizenReportPage() {
           </label>
           <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             {categories.map((cat) => {
-              const selected = category === cat;
+              const selected = category === cat.value;
               return (
                 <button
-                  key={cat}
+                  key={cat.value}
                   type="button"
-                  onClick={() => setCategory(cat)}
+                  onClick={() => setCategory(cat.value)}
                   className={`rounded-xl border px-3 py-3 text-xs font-bold transition ${
                     selected
                       ? "border-[#124b35] bg-[#eef5ef] text-[#124b35] ring-2 ring-[#124b35]/20"
                       : "border-[#dce4de] bg-white text-[#526158] hover:bg-[#fafcf9]"
                   }`}
                 >
-                  {cat}
+                  {t(cat.key as keyof typeof import('@/context/LanguageContext').TranslationsMap)}
                 </button>
               );
             })}
@@ -356,7 +356,7 @@ export default function CitizenReportPage() {
             <label className="text-base font-bold text-[#14251c]">
               {t("uploadPhoto") || "Attach Evidence"} <span className="text-red-500">*</span>
             </label>
-            <span className="text-xs font-bold text-red-500">Required</span>
+            <span className="text-xs font-bold text-red-500">{t("requiredText")}</span>
           </div>
 
           {/* IMAGE PREVIEW OR BUTTONS */}
@@ -384,7 +384,7 @@ export default function CitizenReportPage() {
                 className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#124b35]/40 bg-[#eef5ef] py-6 text-[#124b35] transition hover:bg-[#dce4de]"
               >
                 <Camera size={28} />
-                <span className="text-xs font-bold">Take Photo</span>
+                <span className="text-xs font-bold">{t("takePhotoBtn")}</span>
               </button>
 
               {/* GALLERY BUTTON */}
@@ -394,7 +394,7 @@ export default function CitizenReportPage() {
                 className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#dce4de] bg-[#fafcf9] py-6 text-[#718078] transition hover:bg-white hover:text-[#14251c]"
               >
                 <ImageIcon size={28} />
-                <span className="text-xs font-bold">Upload File</span>
+                <span className="text-xs font-bold">{t("uploadFileBtn")}</span>
               </button>
             </div>
           )}
@@ -424,7 +424,7 @@ export default function CitizenReportPage() {
           <label className="text-base font-bold text-[#14251c]">
             {t("describeProblem") || "Describe Issue"}{" "}
             <span className="text-xs text-[#718078] font-normal">
-              (Optional)
+              {t("optionalText")}
             </span>
           </label>
           <div className="relative mt-3">
@@ -436,7 +436,7 @@ export default function CitizenReportPage() {
               rows={4}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Provide context (e.g. Overflowing bin near main road entrance)..."
+              placeholder={t("describePlaceholder")}
               className="w-full resize-none rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none transition focus:border-[#124b35] focus:ring-2 focus:ring-[#124b35]/10"
             />
           </div>
@@ -447,11 +447,11 @@ export default function CitizenReportPage() {
           <label className="text-base font-bold text-[#14251c]">
             {t("recordVoice") || "Record Voice Note"}{" "}
             <span className="text-xs text-[#718078] font-normal">
-              (Optional)
+              {t("optionalText")}
             </span>
           </label>
           <p className="mt-1 text-xs text-[#718078]">
-            Speak in Odia, Hindi, or English to explain the issue directly.
+            {t("voiceHint")}
           </p>
 
           <div className="mt-4">
@@ -462,7 +462,7 @@ export default function CitizenReportPage() {
                 className="flex items-center gap-2 rounded-xl border border-[#124b35] bg-[#eef5ef] px-4 py-2.5 text-xs font-bold text-[#124b35] hover:bg-[#124b35] hover:text-white transition"
               >
                 <Mic size={16} />
-                Start Voice Recording
+                {t("startVoiceBtn")}
               </button>
             )}
 
@@ -503,7 +503,7 @@ export default function CitizenReportPage() {
             {t("attachGps") || "Attach GPS Location"}
           </label>
           <p className="mt-1 text-xs text-[#718078]">
-            Helps municipal workers route the issue to the right ward.
+            {t("gpsHint")}
           </p>
 
           <div className="mt-4">
@@ -521,7 +521,7 @@ export default function CitizenReportPage() {
                 )}
                 {locationLoading
                   ? "Detecting Coordinates..."
-                  : "Detect Current Location"}
+                  : t("detectLocBtn")}
               </button>
             ) : (
               <div className="flex items-center gap-2 rounded-xl bg-[#eef5ef] p-3 text-xs font-bold text-[#124b35]">
@@ -546,10 +546,10 @@ export default function CitizenReportPage() {
             />
             <div>
               <p className="text-sm font-bold text-[#14251c]">
-                Submit Anonymously
+                {t("submitAnonLabel")}
               </p>
               <p className="text-xs text-[#718078]">
-                Your identity won't be visible on public tracking maps.
+                {t("anonHint")}
               </p>
             </div>
           </label>

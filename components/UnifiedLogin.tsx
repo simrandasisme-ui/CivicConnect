@@ -22,6 +22,8 @@ type UnifiedLoginProps = {
   onLoginSuccess?: (data: {
     role: Role;
     identifier: string;
+    name?: string;
+    email?: string;
     anonymous: boolean;
     token: string;
   }) => void;
@@ -34,6 +36,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
 
   // Form State
   const [identifier, setIdentifier] = useState("");
+  const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [anonymous, setAnonymous] = useState(false);
@@ -96,6 +99,8 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
       setError(
         selectedRole === "worker"
           ? "Please enter your Employee ID."
+          : selectedRole === "citizen"
+          ? "Please enter your Email Address."
           : "Please enter your User ID."
       );
       return;
@@ -104,110 +109,78 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
     setLoading(true);
 
     try {
-      // 1. FORGOT PASSWORD
-      if (mode === "forgot") {
-        if (!password) {
-          setError("Please enter a new password.");
-          setLoading(false);
-          return;
-        }
-        if (password.length < 4) {
-          setError("New password must be at least 4 characters long.");
-          setLoading(false);
-          return;
-        }
-        if (password !== confirmPassword) {
-          setError("Passwords do not match.");
-          setLoading(false);
-          return;
-        }
-
-        if (selectedRole === "worker") {
-          await supabase
-            .from("workers")
-            .update({ password: password })
-            .eq("dept_id", trimmedId);
-        } else {
-          await supabase
-            .from("users")
-            .update({ password: password })
-            .eq("user_id", trimmedId);
-        }
-
-        setSuccessMessage("Password reset successfully! Logging you in...");
-      }
-
-      // 2. REGISTER NEW ACCOUNT
-      if (mode === "register" && selectedRole === "citizen") {
-        if (!password) {
-          setError("Please enter a password.");
-          setLoading(false);
-          return;
-        }
-        if (password.length < 4) {
-          setError("Password must be at least 4 characters long.");
-          setLoading(false);
-          return;
-        }
-        if (password !== confirmPassword) {
-          setError("Passwords do not match.");
-          setLoading(false);
-          return;
-        }
-
-        const { data: existingUsers } = await supabase
-          .from("users")
-          .select("user_id")
-          .eq("user_id", trimmedId);
-
-        if (existingUsers && existingUsers.length > 0) {
-          setError("This User ID is already taken. Please choose another or log in.");
-          setLoading(false);
-          return;
-        }
-
-        await supabase.from("users").insert([
-          {
-            user_id: trimmedId,
-            password: password,
-            role: "citizen",
-          },
-        ]);
-      }
-      
+// ==========================================
       // 3. LOGIN VERIFICATION
+      // ==========================================
+      let finalToken = `jwt_session_${selectedRole}_${Date.now()}`; // Mock token for non-citizens
+      let finalDisplayName = trimmedId; // Default to what they typed
+
       if (mode === "login") {
         if (selectedRole === "admin") {
-          // Master Admin Credentials
           if (trimmedId !== "admin" || password !== "admin123") {
             setError("Incorrect admin credentials.");
             setLoading(false);
             return;
           }
-        } else if (selectedRole === "citizen") {
-          const { data: userRecords } = await supabase
-            .from("users")
+        } 
+        else if (selectedRole === "worker") {
+          const { data: workerRecords } = await supabase
+            .from("workers")
             .select("*")
-            .eq("user_id", trimmedId);
+            .eq("dept_id", trimmedId);
 
-          if (userRecords && userRecords.length > 0) {
-            const matchedUser = userRecords[0];
-            if (matchedUser.password && matchedUser.password !== password) {
-              setError("Incorrect password. Please check your credentials.");
+          if (workerRecords && workerRecords.length > 0) {
+            if (workerRecords[0].password !== password) {
+              setError("Incorrect password.");
               setLoading(false);
               return;
+            }
+            // If you have worker names in the database, you can set it here:
+            // finalDisplayName = workerRecords[0].name || trimmedId;
+          } else {
+             setError("Worker not found.");
+             setLoading(false);
+             return;
+          }
+        }
+        else if (selectedRole === "citizen") {
+          // SECURE CITIZEN LOGIN
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: trimmedId,
+            password: password,
+          });
+
+          if (error) {
+            if (error.message.includes("Email not confirmed")) {
+              setError("Please verify your email address before logging in. Check your inbox.");
+            } else {
+              setError("Incorrect credentials. Please try again.");
+            }
+            setLoading(false);
+            return; // Halt on error
+          }
+          
+          // Extract token and full name from Supabase
+          if (data.session) {
+            finalToken = data.session.access_token;
+            
+            // Check if the full_name exists in the user's metadata
+            if (data.user?.user_metadata?.full_name) {
+              finalDisplayName = data.user.user_metadata.full_name;
             }
           }
         }
       }
-
-      // 4. PERSIST SESSION (LOCAL STORAGE + COOKIE FOR MOBILE HARDINESS)
-      const mockToken = `jwt_session_${selectedRole}_${Date.now()}`;
+      
+      // ==========================================
+      // 4. PERSIST SESSION
+      // ==========================================
       const sessionData = {
         role: selectedRole,
-        identifier: trimmedId,
+        identifier: finalDisplayName, // Now passes the Name instead of the Email!
+        email: trimmedId,             // Safely stores the email separately
         anonymous: selectedRole === "citizen" ? anonymous : false,
-        token: mockToken,
+        token: finalToken,
       };
 
       const sessionString = JSON.stringify(sessionData);
@@ -218,22 +191,19 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
         console.warn("Storage warning:", e);
       }
 
-      // Set cookie as mobile fallback
-      document.cookie = `civic_connect_auth=${encodeURIComponent(
-        sessionString
-      )}; path=/; max-age=86400`;
+      document.cookie = `civic_connect_auth=${encodeURIComponent(sessionString)}; path=/; max-age=86400`;
 
       if (selectedRole === "worker") {
         window.location.href = "/employees";
       } else if (selectedRole === "admin") {
-        window.location.href = "/admin"; // Redirects to the new admin dashboard
+        window.location.href = "/admin"; 
       } else if (onLoginSuccess) {
         onLoginSuccess(sessionData);
       }
+      
     } catch (err: unknown) {
       console.error("Auth error:", err);
-      const msg = err instanceof Error ? err.message : "Authentication failed.";
-      setError(msg);
+      setError(err instanceof Error ? err.message : "Authentication failed.");
     } finally {
       setLoading(false);
     }
@@ -357,10 +327,34 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
 
       {/* FORM INPUTS */}
       <div className="mt-6 space-y-4">
+        
+        {/* 1. FULL NAME (Only shows during Citizen Registration) */}
+        {mode === "register" && selectedRole === "citizen" && (
+          <div>
+            <label className="block text-sm font-semibold text-[#14251c]">
+              {t("login_nameLabel") || "Full Name"}
+            </label>
+            <div className="relative mt-1.5">
+              <UserRound
+                size={18}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-[#718078]"
+              />
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder={t("login_namePlaceholder") || "e.g. Rahul Sharma"}
+                className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none transition focus:border-[#124b35] focus:ring-2 focus:ring-[#124b35]/10"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* 2. IDENTIFIER (Email Address for Citizens / IDs for Workers & Admins) */}
         <div>
           <label className="block text-sm font-semibold text-[#14251c]">
             {selectedRole === "citizen"
-              ? t("login_emailLabel") || "User ID / Username"
+              ? t("login_emailLabel") || "Email Address"
               : selectedRole === "worker"
               ? t("login_employeeLabel") || "Employee ID"
               : selectedRole === "admin"
@@ -373,17 +367,22 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
               className="absolute left-4 top-1/2 -translate-y-1/2 text-[#718078]"
             />
             <input
-              type="text"
+              type={selectedRole === "citizen" ? "email" : "text"}
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
               placeholder={
-                selectedRole === "worker" ? "e.g. EMP-4092" : "e.g. Rahul2026"
+                selectedRole === "citizen" 
+                  ? t("login_emailPlaceholder") || "e.g. name@example.com" 
+                  : selectedRole === "worker" 
+                  ? "e.g. EMP-4092" 
+                  : "e.g. Rahul2026"
               }
               className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none transition focus:border-[#124b35] focus:ring-2 focus:ring-[#124b35]/10"
             />
           </div>
         </div>
 
+        {/* 3. PASSWORD */}
         <div>
           <label className="block text-sm font-semibold text-[#14251c]">
             {mode === "forgot" 
@@ -407,6 +406,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
           </div>
         </div>
 
+        {/* 4. CONFIRM PASSWORD (Only shows for Registration or Forgot Password) */}
         {(mode === "register" || mode === "forgot") && (
           <div>
             <label className="block text-sm font-semibold text-[#14251c]">
@@ -428,6 +428,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
           </div>
         )}
 
+        {/* 5. ANONYMOUS TOGGLE (Only shows during Citizen Login) */}
         {selectedRole === "citizen" && mode === "login" && (
           <div className="rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-3.5">
             <label className="flex cursor-pointer items-start gap-3">
@@ -449,6 +450,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
           </div>
         )}
 
+        {/* 6. STATUS MESSAGES */}
         {successMessage && (
           <p className="rounded-xl bg-[#eef5ef] px-4 py-3 text-xs font-semibold text-[#124b35] border border-[#dce4de]">
             {successMessage}
@@ -461,6 +463,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
           </p>
         )}
 
+        {/* 7. SUBMIT BUTTON */}
         <button
           type="button"
           onClick={handleAuthAction}
@@ -482,6 +485,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
             : t("login_submitVoter") || "Sign In as Voter"}
         </button>
 
+        {/* 8. SECURITY FOOTER */}
         <div className="flex items-center justify-center gap-2 pt-2 text-xs text-[#718078]">
           <ShieldCheck size={15} className="text-[#124b35]" />
           <span>{t("login_encryptedSession") || "Encrypted account session"}</span>

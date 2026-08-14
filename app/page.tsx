@@ -15,9 +15,11 @@ import {
   Vote,
 } from "lucide-react";
 
+// 1. ADD THE EMAIL PROPERTY TO THE TYPE
 type AuthUser = {
   role: string;
-  identifier: string;
+  identifier: string; // Now holds the Name
+  email?: string;     // Now holds the Email
   anonymous: boolean;
   token: string;
 };
@@ -38,7 +40,6 @@ export default function HomePage() {
   const [loadingReports, setLoadingReports] = useState(false);
 
   useEffect(() => {
-    // Read session from LocalStorage or Cookies (Mobile fallback)
     let savedSession = localStorage.getItem("civic_connect_auth");
 
     if (!savedSession) {
@@ -55,8 +56,8 @@ export default function HomePage() {
         const parsed = JSON.parse(savedSession);
         setUser(parsed);
         if (parsed.role === "citizen") {
-          // Pass the user's identifier to the fetch function
-          fetchUserReports(parsed.identifier);
+          // 2. USE EMAIL FOR FETCHING REPORTS (Fallback to identifier for older sessions)
+          fetchUserReports(parsed.email || parsed.identifier);
         }
       } catch {
         setUser(null);
@@ -64,13 +65,12 @@ export default function HomePage() {
     }
   }, []);
 
-  // Update function to accept the userId and filter the database
   const fetchUserReports = async (userId: string) => {
     setLoadingReports(true);
     const { data, error } = await supabase
       .from("reports")
       .select("*")
-      .eq("user_id", userId) // <-- THIS IS THE MAGIC LINE
+      .eq("user_id", userId) 
       .order("created_at", { ascending: false });
 
     if (!error && data) {
@@ -117,6 +117,7 @@ export default function HomePage() {
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-bold text-[#14251c]">
+                    {/* 3. DISPLAY THE NAME HERE */}
                     {t("welcome")}, {user.identifier}
                   </h2>
                   <span className="rounded-full bg-[#eef5ef] px-2.5 py-0.5 text-xs font-bold capitalize text-[#124b35]">
@@ -124,7 +125,8 @@ export default function HomePage() {
                   </span>
                 </div>
                 <p className="text-xs text-[#718078]">
-                  Logged in with User ID: {user.identifier}
+                  {/* 4. DISPLAY THE EMAIL/ID HERE */}
+                  Logged in with {user.role === 'citizen' ? 'Email' : 'User ID'}: {user.email || user.identifier}
                 </p>
               </div>
             </div>
@@ -132,7 +134,7 @@ export default function HomePage() {
             <button
               type="button"
               onClick={handleLogout}
-              className="rounded-xl border border-[#dce4de] px-4 py-2 text-xs font-bold text-[#718078] hover:bg-[#fafcf9]"
+              className="rounded-xl border border-[#dce4de] px-4 py-2 text-xs font-bold text-[#718078] hover:bg-[#fafcf9] cursor-pointer"
             >
               {t("signOut")}
             </button>
@@ -269,8 +271,8 @@ export default function HomePage() {
             if (data.role === "worker") {
               window.location.href = "/employees";
             } else if (data.role === "citizen") {
-              // Pass the user's identifier to the fetch function upon login
-              fetchUserReports(data.identifier);
+              // 5. USE EMAIL FOR FETCHING REPORTS ON FRESH LOGIN
+              fetchUserReports(data.email || data.identifier);
             }
           }}
         />
