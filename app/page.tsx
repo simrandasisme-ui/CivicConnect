@@ -13,6 +13,7 @@ import {
   Sparkles,
   User,
   Vote,
+  X
 } from "lucide-react";
 
 // 1. ADD THE EMAIL PROPERTY TO THE TYPE
@@ -38,6 +39,7 @@ export default function HomePage() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [myReports, setMyReports] = useState<UserReport[]>([]);
   const [loadingReports, setLoadingReports] = useState(false);
+  const [selectedReport, setSelectedReport] = useState<UserReport | null>(null);
 
   useEffect(() => {
     let savedSession = localStorage.getItem("civic_connect_auth");
@@ -189,6 +191,7 @@ export default function HomePage() {
                 {myReports.map((report) => (
                   <div
                     key={report.id}
+                    onClick={() => setSelectedReport(report)}
                     className="flex items-center justify-between rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-4 transition hover:bg-white"
                   >
                     <div className="flex items-center gap-3">
@@ -276,6 +279,76 @@ export default function HomePage() {
             }
           }}
         />
+      )}
+
+      {/* ========================================== */}
+      {/* REPORT DETAILS MODAL */}
+      {/* ========================================== */}
+      {selectedReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#14251c]/40 p-4 backdrop-blur-sm transition-opacity">
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-[#dce4de] bg-[#fafcf9] px-6 py-4">
+              <h3 className="text-lg font-bold text-[#14251c]">Report Details</h3>
+              <button
+                onClick={() => setSelectedReport(null)}
+                className="rounded-full p-2 text-[#718078] transition hover:bg-[#eef5ef] hover:text-[#124b35] cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            {/* Modal Body */}
+            <div className="p-6">
+              <div className="mb-5 flex items-center justify-between">
+                <span className="rounded-xl bg-[#eef5ef] px-3 py-1.5 text-sm font-bold text-[#124b35]">
+                  {selectedReport.category}
+                </span>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-bold ${
+                    selectedReport.status === "Resolved"
+                      ? "bg-emerald-100 text-emerald-800"
+                      : selectedReport.status === "In Progress"
+                      ? "bg-amber-100 text-amber-800"
+                      : "bg-red-100 text-red-800"
+                  }`}
+                >
+                  {selectedReport.status}
+                </span>
+              </div>
+              
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-[#718078]">
+                Description
+              </p>
+              <p className="mb-6 text-sm text-[#14251c] leading-relaxed">
+                {selectedReport.description || "No description provided."}
+              </p>
+
+              {selectedReport.image_urls && selectedReport.image_urls.length > 0 && (
+                <div>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-[#718078]">
+                    Attached Evidence
+                  </p>
+                  <img
+                    src={selectedReport.image_urls[0]}
+                    alt="Report Evidence"
+                    className="h-48 w-full rounded-2xl border border-[#dce4de] object-cover"
+                  />
+                </div>
+              )}
+              
+              <div className="mt-6 flex justify-end border-t border-[#dce4de] pt-4">
+                <p className="text-xs text-[#718078]">
+                  Submitted on: {new Date(selectedReport.created_at).toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -167,17 +167,14 @@ export default function CitizenReportPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. GET CURRENT USER ID FROM LOCAL STORAGE / COOKIES
-      let currentUserId = "anonymous";
-      const authData = window.localStorage.getItem("civic_connect_auth");
-      if (authData) {
-        try {
-          const parsed = JSON.parse(authData);
-          currentUserId = parsed.identifier; // e.g. "Sai"
-        } catch (err) {
-          console.error("Error reading auth session:", err);
-        }
+      // 1. SECURELY GET THE USER'S ACTUAL UUID FROM SUPABASE
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !user) {
+        throw new Error("You must be logged in to submit a report.");
       }
+
+      const currentUserId = user.id; // This safely gets the UUID format required by the database
 
       let uploadedPhotoUrl = "";
       let uploadedAudioUrl = "";
@@ -218,18 +215,18 @@ export default function CitizenReportPage() {
         }
       }
 
-      // Step C: Insert Record in Supabase Table with user_id
+      // Step C: Insert Record in Supabase Table using the valid UUID
       const { data: insertedData, error: dbError } = await supabase
         .from("reports")
         .insert([
           {
-            user_id: currentUserId, // <-- ATTACHES THE LOGGED-IN USER
+            user_id: currentUserId, // UUID safely injected here
             category,
             description: description.trim() || null,
             anonymous,
             latitude: location?.latitude ?? null,
             longitude: location?.longitude ?? null,
-            status: "Open",
+            status: "Open", // Make sure this matches your DB constraint (e.g., 'Open' vs 'Submitted')
             image_urls: [uploadedPhotoUrl],
             voice_url: uploadedAudioUrl || null,
             duplicate_count: 0,
@@ -299,7 +296,7 @@ export default function CitizenReportPage() {
               setLocation(null);
               deleteRecording();
             }}
-            className="mt-8 w-full rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b]"
+            className="mt-8 w-full rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b] cursor-pointer"
           >
             Submit Another Report
           </button>
@@ -337,7 +334,7 @@ export default function CitizenReportPage() {
                   key={cat.value}
                   type="button"
                   onClick={() => setCategory(cat.value)}
-                  className={`rounded-xl border px-3 py-3 text-xs font-bold transition ${
+                  className={`cursor-pointer rounded-xl border px-3 py-3 text-xs font-bold transition ${
                     selected
                       ? "border-[#124b35] bg-[#eef5ef] text-[#124b35] ring-2 ring-[#124b35]/20"
                       : "border-[#dce4de] bg-white text-[#526158] hover:bg-[#fafcf9]"
@@ -370,7 +367,7 @@ export default function CitizenReportPage() {
               <button
                 type="button"
                 onClick={removePhoto}
-                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-red-600 shadow-sm backdrop-blur-sm transition hover:bg-white"
+                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-red-600 shadow-sm backdrop-blur-sm transition hover:bg-white cursor-pointer"
               >
                 <X size={18} />
               </button>
@@ -381,7 +378,7 @@ export default function CitizenReportPage() {
               <button
                 type="button"
                 onClick={() => cameraInputRef.current?.click()}
-                className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#124b35]/40 bg-[#eef5ef] py-6 text-[#124b35] transition hover:bg-[#dce4de]"
+                className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#124b35]/40 bg-[#eef5ef] py-6 text-[#124b35] transition hover:bg-[#dce4de] cursor-pointer"
               >
                 <Camera size={28} />
                 <span className="text-xs font-bold">{t("takePhotoBtn")}</span>
@@ -391,7 +388,7 @@ export default function CitizenReportPage() {
               <button
                 type="button"
                 onClick={() => galleryInputRef.current?.click()}
-                className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#dce4de] bg-[#fafcf9] py-6 text-[#718078] transition hover:bg-white hover:text-[#14251c]"
+                className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#dce4de] bg-[#fafcf9] py-6 text-[#718078] transition hover:bg-white hover:text-[#14251c] cursor-pointer"
               >
                 <ImageIcon size={28} />
                 <span className="text-xs font-bold">{t("uploadFileBtn")}</span>
@@ -400,7 +397,6 @@ export default function CitizenReportPage() {
           )}
 
           {/* HIDDEN INPUTS TO TRIGGER ACTIONS */}
-          {/* capture="environment" forces the rear camera on mobile */}
           <input
             type="file"
             accept="image/*"
@@ -409,7 +405,6 @@ export default function CitizenReportPage() {
             onChange={handlePhotoChange}
             className="hidden"
           />
-          {/* Standard input opens the file/gallery picker */}
           <input
             type="file"
             accept="image/*"
@@ -459,7 +454,7 @@ export default function CitizenReportPage() {
               <button
                 type="button"
                 onClick={startRecording}
-                className="flex items-center gap-2 rounded-xl border border-[#124b35] bg-[#eef5ef] px-4 py-2.5 text-xs font-bold text-[#124b35] hover:bg-[#124b35] hover:text-white transition"
+                className="flex items-center gap-2 rounded-xl border border-[#124b35] bg-[#eef5ef] px-4 py-2.5 text-xs font-bold text-[#124b35] hover:bg-[#124b35] hover:text-white transition cursor-pointer"
               >
                 <Mic size={16} />
                 {t("startVoiceBtn")}
@@ -475,7 +470,7 @@ export default function CitizenReportPage() {
                 <button
                   type="button"
                   onClick={stopRecording}
-                  className="ml-auto flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white"
+                  className="ml-auto flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white cursor-pointer"
                 >
                   <MicOff size={14} /> Stop
                 </button>
@@ -488,7 +483,7 @@ export default function CitizenReportPage() {
                 <button
                   type="button"
                   onClick={deleteRecording}
-                  className="self-end flex items-center gap-1 text-xs font-bold text-red-500 hover:underline mt-1"
+                  className="self-end flex items-center gap-1 text-xs font-bold text-red-500 hover:underline mt-1 cursor-pointer"
                 >
                   <Trash2 size={14} /> Remove recording
                 </button>
@@ -512,7 +507,7 @@ export default function CitizenReportPage() {
                 type="button"
                 onClick={getLocation}
                 disabled={locationLoading}
-                className="flex items-center gap-2 rounded-xl border border-[#dce4de] bg-[#fafcf9] px-4 py-3 text-xs font-bold text-[#14251c] hover:border-[#124b35]"
+                className="flex items-center gap-2 rounded-xl border border-[#dce4de] bg-[#fafcf9] px-4 py-3 text-xs font-bold text-[#14251c] hover:border-[#124b35] cursor-pointer"
               >
                 {locationLoading ? (
                   <Loader2 size={16} className="animate-spin text-[#124b35]" />
@@ -557,7 +552,7 @@ export default function CitizenReportPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#124b35] py-4 text-base font-bold text-white shadow-lg transition hover:bg-[#0d3d2b] disabled:opacity-50"
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#124b35] py-4 text-base font-bold text-white shadow-lg transition hover:bg-[#0d3d2b] disabled:opacity-50 cursor-pointer"
           >
             {isSubmitting ? (
               <>
