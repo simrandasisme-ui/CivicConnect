@@ -12,6 +12,8 @@
     "@supabase/supabase-js": "^2.112.3",
     "@types/leaflet": "^1.9.22",
     "@xenova/transformers": "^2.17.2",
+    "imghash": "^1.1.4",
+    "jimp": "^1.6.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.31.0",
     "next": "16.3.0",

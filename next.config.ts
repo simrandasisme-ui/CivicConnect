@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
   ],
 
   // 2. Allow external image hosting/previews:
+
   images: {
     remotePatterns: [
       {
@@ -19,7 +20,7 @@ const nextConfig: NextConfig = {
   },
 
   // 3. Enable server-side local embeddings (Transformers.js / ONNX):
-  serverExternalPackages: ["@xenova/transformers", "onnxruntime-node"],
+  serverExternalPackages: ["@xenova/transformers", "onnxruntime-node","imghash", "jimp"],
 };
 
 export default nextConfig;

@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabase";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { CheckCircle2, Clock, AlertTriangle } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
 
 type Report = {
   id: string;
@@ -51,6 +52,7 @@ const yellowIcon = createCustomIcon("#f59e0b"); // In Progress
 const greenIcon = createCustomIcon("#10b981"); // Resolved
 
 export default function PublicTrackingMap() {
+  const { t } = useLanguage();
   const [reports, setReports] = useState<Report[]>([]);
 
   // Default center coordinates (Bhubaneswar / Default City)
@@ -79,24 +81,25 @@ export default function PublicTrackingMap() {
     return redIcon;
   };
 
+  // Moved inside the component so it can use the `t` function
   const getStatusBadge = (status: string) => {
     if (status === "Resolved") {
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
-          <CheckCircle2 size={12} /> Resolved
+          <CheckCircle2 size={12} /> {t("resolved")}
         </span>
       );
     }
     if (status === "In Progress") {
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800">
-          <Clock size={12} /> In Progress
+          <Clock size={12} /> {t("inProgress")}
         </span>
       );
     }
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-bold text-red-800">
-        <AlertTriangle size={12} /> Open
+        <AlertTriangle size={12} /> {t("openIssue")}
       </span>
     );
   };
@@ -111,18 +114,18 @@ export default function PublicTrackingMap() {
 
       {/* MAP LEGEND OVERLAY */}
       <div className="absolute right-4 top-4 z-[1000] rounded-2xl border border-[#dce4de] bg-white/95 p-4 shadow-lg backdrop-blur text-xs font-semibold space-y-2">
-        <p className="font-bold text-[#14251c] mb-1.5">Issue Status</p>
+        <p className="font-bold text-[#14251c] mb-1.5">{t("issueStatus")}</p>
         <div className="flex items-center gap-2 text-[#14251c]">
           <span className="h-3 w-3 rounded-full bg-red-500" />
-          <span>Open Issue</span>
+          <span>{t("openIssue")}</span>
         </div>
         <div className="flex items-center gap-2 text-[#14251c]">
           <span className="h-3 w-3 rounded-full bg-amber-500" />
-          <span>In Progress</span>
+          <span>{t("inProgress")}</span>
         </div>
         <div className="flex items-center gap-2 text-[#14251c]">
           <span className="h-3 w-3 rounded-full bg-emerald-500" />
-          <span>Resolved</span>
+          <span>{t("resolved")}</span>
         </div>
       </div>
 
@@ -152,6 +155,8 @@ export default function PublicTrackingMap() {
                 <div className="max-w-xs space-y-3 p-1 text-[#14251c]">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-bold text-[#14251c] text-sm">
+                      {/* Note: If you want to translate the category name dynamically, 
+                          you can map it to your keys here, but leaving it as DB text for now */}
                       {report.category}
                     </span>
                     {getStatusBadge(report.status)}
@@ -167,7 +172,7 @@ export default function PublicTrackingMap() {
                   {report.image_urls && report.image_urls.length > 0 && (
                     <div>
                       <p className="text-[10px] font-bold uppercase tracking-wider text-[#718078] mb-1">
-                        Reported Photo
+                        {t("reportedPhoto")}
                       </p>
                       <img
                         src={report.image_urls[0]}
@@ -181,7 +186,7 @@ export default function PublicTrackingMap() {
                   {report.status === "Resolved" && report.resolution_proof_url && (
                     <div className="rounded-xl bg-emerald-50 p-2 border border-emerald-200">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 mb-1 flex items-center gap-1">
-                        <CheckCircle2 size={12} /> Resolution Proof
+                        <CheckCircle2 size={12} /> {t("resolutionProof")}
                       </p>
                       <img
                         src={report.resolution_proof_url}
@@ -192,7 +197,7 @@ export default function PublicTrackingMap() {
                   )}
 
                   <p className="text-[10px] text-[#718078] pt-1">
-                    Logged on {new Date(report.created_at).toLocaleDateString()}
+                    {t("loggedOn")} {new Date(report.created_at).toLocaleDateString()}
                   </p>
                 </div>
               </Popup>

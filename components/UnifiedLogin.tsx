@@ -15,16 +15,9 @@ import {
   Landmark,
 } from "lucide-react";
 
-type Role =
-  | "citizen"
-  | "worker"
-  | "officer"
-  | "admin";
+type Role = "citizen" | "worker" | "officer" | "admin";
 
-type AuthMode =
-  | "login"
-  | "register"
-  | "forgot";
+type AuthMode = "login" | "register" | "forgot";
 
 type UnifiedLoginProps = {
   onLoginSuccess?: (data: {
@@ -37,83 +30,48 @@ type UnifiedLoginProps = {
   }) => void;
 };
 
-export default function UnifiedLogin({
-  onLoginSuccess,
-}: UnifiedLoginProps) {
+export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
   const { t } = useLanguage();
 
-  const [selectedRole, setSelectedRole] =
-    useState<Role>("citizen");
-
-  const [mode, setMode] =
-    useState<AuthMode>("login");
-
-  const [identifier, setIdentifier] =
-    useState("");
-
-  const [fullName, setFullName] =
-    useState("");
-
-  const [password, setPassword] =
-    useState("");
-
-  const [confirmPassword, setConfirmPassword] =
-    useState("");
-
-  const [anonymous, setAnonymous] =
-    useState(false);
-
-  const [loading, setLoading] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
-
-  const [successMessage, setSuccessMessage] =
-    useState("");
+  const [selectedRole, setSelectedRole] = useState<Role>("citizen");
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [identifier, setIdentifier] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [anonymous, setAnonymous] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   const roles = [
     {
       id: "citizen" as Role,
-      title:
-        t("login_roleCitizen") ||
-        "Citizen",
-      subtitle:
-        t("login_roleCitizenDesc") ||
-        "Report issues & track progress",
+      title: t("login_roleCitizen") || "Citizen",
+      subtitle: t("login_roleCitizenDesc") || "Report issues & track progress",
       icon: UserRound,
     },
     {
       id: "worker" as Role,
-      title:
-        t("login_roleEmployee") ||
-        "Municipal Worker",
-      subtitle:
-        t("login_roleEmployeeDesc") ||
-        "Manage tickets & post evidence",
+      title: t("login_roleEmployee") || "Municipal Worker",
+      subtitle: t("login_roleEmployeeDesc") || "Manage tickets & post evidence",
       icon: Building2,
     },
     {
       id: "officer" as Role,
-      title: "Budget Officer",
-      subtitle: "Publish & manage civic projects",
+      title: t("login_roleOfficer") || "Budget Officer",
+      subtitle: t("login_roleOfficerDesc") || "Publish & manage civic projects",
       icon: Landmark,
     },
     {
       id: "admin" as Role,
-      title:
-        t("login_roleAdmin") ||
-        "Administrator",
-      subtitle:
-        t("login_roleAdminDesc") ||
-        "Manage workers & system",
+      title: t("login_roleAdmin") || "Administrator",
+      subtitle: t("login_roleAdminDesc") || "Manage workers & system",
       icon: ShieldCheck,
     },
   ];
 
-  const handleRoleChange = (
-    role: Role
-  ) => {
+  const handleRoleChange = (role: Role) => {
     setSelectedRole(role);
     setMode("login");
     setIdentifier("");
@@ -123,9 +81,7 @@ export default function UnifiedLogin({
     setSuccessMessage("");
   };
 
-  const handleModeChange = (
-    newMode: AuthMode
-  ) => {
+  const handleModeChange = (newMode: AuthMode) => {
     setMode(newMode);
     setError("");
     setSuccessMessage("");
@@ -137,30 +93,30 @@ export default function UnifiedLogin({
     setError("");
     setSuccessMessage("");
 
-    const trimmedId =
-      identifier.trim();
+    const trimmedId = identifier.trim();
 
-    const isAnonymousCitizen = selectedRole === "citizen" && mode === "login" && anonymous;
+    const isAnonymousCitizen =
+      selectedRole === "citizen" && mode === "login" && anonymous;
 
-if (!isAnonymousCitizen) {
-  if (!trimmedId) {
-    setError(
-      selectedRole === "worker"
-        ? "Please enter your Employee ID."
-        : selectedRole === "officer"
-        ? "Please enter your Officer ID."
-        : selectedRole === "citizen"
-        ? "Please enter your Email Address."
-        : "Please enter your Admin ID."
-    );
-    return;
-  }
+    if (!isAnonymousCitizen) {
+      if (!trimmedId) {
+        setError(
+          selectedRole === "worker"
+            ? "Please enter your Employee ID."
+            : selectedRole === "officer"
+            ? "Please enter your Officer ID."
+            : selectedRole === "citizen"
+            ? "Please enter your Email Address."
+            : "Please enter your Admin ID."
+        );
+        return;
+      }
 
-  if (!password) {
-    setError("Please enter your password.");
-    return;
-  }
-}
+      if (!password) {
+        setError("Please enter your password.");
+        return;
+      }
+    }
 
     setLoading(true);
 
@@ -170,38 +126,37 @@ if (!isAnonymousCitizen) {
       let finalEmail = trimmedId;
 
       if (isAnonymousCitizen) {
-    const anonAlias = `anon_${Math.random().toString(36).slice(2, 10)}`;
-    finalToken = `anon_session_${Date.now()}`;
-    finalDisplayName = anonAlias;
-    finalEmail = "";
+        const anonAlias = `anon_${Math.random().toString(36).slice(2, 10)}`;
+        finalToken = `anon_session_${Date.now()}`;
+        finalDisplayName = anonAlias;
+        finalEmail = "";
 
-    const sessionData = {
-      role: "citizen" as Role,
-      identifier: finalDisplayName,
-      email: finalEmail,
-      anonymous: true,
-      token: finalToken,
-    };
+        const sessionData = {
+          role: "citizen" as Role,
+          identifier: finalDisplayName,
+          email: finalEmail,
+          anonymous: true,
+          token: finalToken,
+        };
 
-    window.localStorage.setItem("civic_connect_auth", JSON.stringify(sessionData));
-    document.cookie = `civic_connect_auth=${encodeURIComponent(
-      JSON.stringify(sessionData)
-    )}; path=/; max-age=86400; SameSite=Lax`;
+        window.localStorage.setItem(
+          "civic_connect_auth",
+          JSON.stringify(sessionData)
+        );
+        document.cookie = `civic_connect_auth=${encodeURIComponent(
+          JSON.stringify(sessionData)
+        )}; path=/; max-age=86400; SameSite=Lax`;
 
-    window.location.href = "/report"; // update to your actual report route
-    return;
-  }
-
+        window.location.href = "/report"; // update to your actual report route
+        return;
+      }
 
       /*
        * ========================================================
        * CITIZEN REGISTRATION
        * ========================================================
        */
-      if (
-        mode === "register" &&
-        selectedRole === "citizen"
-      ) {
+      if (mode === "register" && selectedRole === "citizen") {
         if (!fullName.trim()) {
           throw new Error("Please enter your full name.");
         }
@@ -210,10 +165,7 @@ if (!isAnonymousCitizen) {
           throw new Error("Passwords do not match.");
         }
 
-        const {
-          data: signUpData,
-          error: signUpError,
-        } = await supabase.auth.signUp({
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email: trimmedId,
           password,
           options: {
@@ -226,10 +178,7 @@ if (!isAnonymousCitizen) {
 
         if (signUpError) throw signUpError;
 
-        if (
-          signUpData.user &&
-          !signUpData.session
-        ) {
+        if (signUpData.user && !signUpData.session) {
           setSuccessMessage(
             "Registration successful! Please check your email to verify your account."
           );
@@ -254,10 +203,7 @@ if (!isAnonymousCitizen) {
          * ADMIN
          */
         if (selectedRole === "admin") {
-          if (
-            trimmedId !== "admin" ||
-            password !== "admin123"
-          ) {
+          if (trimmedId !== "admin" || password !== "admin123") {
             throw new Error("Incorrect admin credentials.");
           }
 
@@ -270,14 +216,8 @@ if (!isAnonymousCitizen) {
          * WORKER & OFFICER AUTHENTICATION
          * ====================================================
          */
-        else if (
-          selectedRole === "worker" ||
-          selectedRole === "officer"
-        ) {
-          const {
-            data: workerRecord,
-            error: workerError,
-          } = await supabase
+        else if (selectedRole === "worker" || selectedRole === "officer") {
+          const { data: workerRecord, error: workerError } = await supabase
             .from("workers")
             .select("*")
             .eq("dept_id", trimmedId)
@@ -305,9 +245,7 @@ if (!isAnonymousCitizen) {
           }
 
           finalDisplayName =
-            workerRecord.name ||
-            workerRecord.full_name ||
-            trimmedId;
+            workerRecord.name || workerRecord.full_name || trimmedId;
 
           finalEmail = workerRecord.dept_id;
 
@@ -336,13 +274,11 @@ if (!isAnonymousCitizen) {
          * CITIZEN LOGIN
          */
         else if (selectedRole === "citizen") {
-          const {
-            data: authData,
-            error: authError,
-          } = await supabase.auth.signInWithPassword({
-            email: trimmedId,
-            password,
-          });
+          const { data: authData, error: authError } =
+            await supabase.auth.signInWithPassword({
+              email: trimmedId,
+              password,
+            });
 
           if (authError) {
             if (authError.message.includes("Email not confirmed")) {
@@ -403,19 +339,16 @@ if (!isAnonymousCitizen) {
       }
 
       if (selectedRole === "citizen" && anonymous) {
-  window.location.href = "/report"; // update to your actual report route
-  return;
-}
-
+        window.location.href = "/report"; // update to your actual report route
+        return;
+      }
 
       if (onLoginSuccess) {
         onLoginSuccess(sessionData);
       }
     } catch (err: unknown) {
       console.error("Auth error:", err);
-      setError(
-        err instanceof Error ? err.message : "Authentication failed."
-      );
+      setError(err instanceof Error ? err.message : "Authentication failed.");
     } finally {
       setLoading(false);
     }
@@ -437,21 +370,19 @@ if (!isAnonymousCitizen) {
 
         <h2 className="mt-4 text-2xl font-bold text-[#14251c] sm:text-3xl">
           {mode === "forgot"
-            ? "Reset Password"
+            ? t("login_title_reset")
             : selectedRole === "citizen"
             ? mode === "register"
-              ? "Create Citizen Account"
-              : "Citizen Portal Login"
+              ? t("login_title_create")
+              : t("login_title")
             : selectedRole === "worker"
-            ? "Municipal Worker Login"
+            ? t("login_title_worker")
             : selectedRole === "admin"
-            ? "Admin Portal Login"
-            : "Budget Officer Login"}
+            ? t("login_roleAdmin")
+            : t("login_roleOfficer")}
         </h2>
 
-        <p className="mt-2 text-sm text-[#718078]">
-          Select your portal role to continue
-        </p>
+        <p className="mt-2 text-sm text-[#718078]">{t("login_subtitle")}</p>
       </div>
 
       {/* ROLES */}
@@ -510,7 +441,7 @@ if (!isAnonymousCitizen) {
               : "text-[#718078]"
           }`}
         >
-          Login
+          {t("login_modeLogin")}
         </button>
 
         {selectedRole === "citizen" && (
@@ -523,7 +454,7 @@ if (!isAnonymousCitizen) {
                 : "text-[#718078]"
             }`}
           >
-            New Account
+            {t("login_modeRegister")}
           </button>
         )}
 
@@ -536,7 +467,7 @@ if (!isAnonymousCitizen) {
               : "text-[#718078]"
           }`}
         >
-          Forgot Password
+          {t("login_modeForgot")}
         </button>
       </div>
 
@@ -546,7 +477,7 @@ if (!isAnonymousCitizen) {
         {mode === "register" && selectedRole === "citizen" && (
           <div>
             <label className="block text-sm font-semibold text-[#14251c]">
-              Full Name
+              {t("login_nameLabel")}
             </label>
 
             <div className="relative mt-1.5">
@@ -559,7 +490,7 @@ if (!isAnonymousCitizen) {
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="e.g. Rahul Sharma"
+                placeholder={t("login_namePlaceholder")}
                 className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none focus:border-[#124b35]"
               />
             </div>
@@ -570,9 +501,9 @@ if (!isAnonymousCitizen) {
         <div>
           <label className="block text-sm font-semibold text-[#14251c]">
             {selectedRole === "citizen"
-              ? "Email Address"
+              ? t("login_emailLabel")
               : selectedRole === "worker"
-              ? "Employee ID"
+              ? t("login_employeeLabel")
               : selectedRole === "officer"
               ? "Officer ID"
               : "Admin ID"}
@@ -590,7 +521,7 @@ if (!isAnonymousCitizen) {
               onChange={(e) => setIdentifier(e.target.value)}
               placeholder={
                 selectedRole === "citizen"
-                  ? "e.g. name@example.com"
+                  ? t("login_emailPlaceholder")
                   : selectedRole === "worker"
                   ? "e.g. EMP-12345"
                   : selectedRole === "officer"
@@ -605,7 +536,7 @@ if (!isAnonymousCitizen) {
         {/* PASSWORD */}
         <div>
           <label className="block text-sm font-semibold text-[#14251c]">
-            Password
+            {t("login_passwordLabel")}
           </label>
 
           <div className="relative mt-1.5">
@@ -618,7 +549,7 @@ if (!isAnonymousCitizen) {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
+              placeholder={t("login_passwordLabel")}
               className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none focus:border-[#124b35]"
             />
           </div>
@@ -628,7 +559,7 @@ if (!isAnonymousCitizen) {
         {(mode === "register" || mode === "forgot") && (
           <div>
             <label className="block text-sm font-semibold text-[#14251c]">
-              Confirm Password
+              {t("login_confirmPasswordLabel")}
             </label>
 
             <div className="relative mt-1.5">
@@ -641,7 +572,7 @@ if (!isAnonymousCitizen) {
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Re-enter password"
+                placeholder={t("login_confirmPasswordLabel")}
                 className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none focus:border-[#124b35]"
               />
             </div>
@@ -661,11 +592,11 @@ if (!isAnonymousCitizen) {
 
               <div>
                 <p className="text-xs font-bold text-[#14251c]">
-                  File Anonymous Reports
+                  {t("login_anonymousLabel")}
                 </p>
 
                 <p className="text-[11px] text-[#718078]">
-                  Generates an anonymous alias when filing complaints.
+                  {t("login_anonymousDesc")}
                 </p>
               </div>
             </label>
@@ -694,15 +625,15 @@ if (!isAnonymousCitizen) {
           className="w-full rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b] disabled:opacity-50"
         >
           {loading
-            ? "Authenticating..."
+            ? t("login_authenticating")
             : mode === "forgot"
-            ? "Reset Password & Sign In"
+            ? t("login_submitReset")
             : selectedRole === "citizen"
             ? mode === "register"
-              ? "Create Account & Sign In"
-              : "Sign In as Citizen"
+              ? t("login_submitRegister")
+              : t("login_submitButton")
             : selectedRole === "worker"
-            ? "Login to Worker Portal"
+            ? t("login_submitWorker")
             : selectedRole === "admin"
             ? "Login to Admin Panel"
             : "Login to Officer Dashboard"}
