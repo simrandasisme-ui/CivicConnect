@@ -228,6 +228,7 @@ export default function CitizenReportPage() {
           ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`
           : "Location Captured via GPS",
         reporterId: currentUserEmail,
+        reporterEmail: user?.email || null,
         anonymous,
       };
 
@@ -288,19 +289,22 @@ export default function CitizenReportPage() {
           </div>
 
           <h2 className="mt-6 text-2xl font-bold text-[#14251c] sm:text-3xl">
-            {isMerged ? "Report Merged & Priority Boosted!" : "Report Submitted Successfully!"}
+            {isMerged 
+              ? (t("successMergedTitle") || "Report Merged & Priority Boosted!") 
+              : (t("successNewTitle") || "Report Submitted Successfully!")}
           </h2>
 
           <p className="mt-2 text-sm text-[#718078]">
             {isMerged
-              ? mergeMessage ||
-                "A matching report was already open within 25 meters. Your evidence has been attached to raise municipal priority."
-              : "Thank you for helping improve your community. Your issue has been logged and assigned for municipal action."}
+              ? (mergeMessage || t("successMergedDesc") || "A matching report was already open within 25 meters. Your evidence has been attached to raise municipal priority.")
+              : (t("successNewDesc") || "Thank you for helping improve your community. Your issue has been logged and assigned for municipal action.")}
           </p>
 
           <div className="mt-6 rounded-2xl bg-[#fafcf9] p-4 text-center border border-[#dce4de]">
             <p className="text-xs font-bold uppercase tracking-wider text-[#718078]">
-              {isMerged ? "Linked Master Ticket ID" : "Tracking Reference ID"}
+              {isMerged 
+                ? (t("mergedTicketLabel") || "Linked Master Ticket ID") 
+                : (t("newTicketLabel") || "Tracking Reference ID")}
             </p>
             <p className="mt-1 font-mono text-xl font-extrabold text-[#124b35]">
               #{reportId}
@@ -322,7 +326,7 @@ export default function CitizenReportPage() {
             }}
             className="mt-8 w-full rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b] cursor-pointer"
           >
-            Submit Another Report
+            {t("submitAnotherBtn") || "Submit Another Report"}
           </button>
         </div>
       </div>

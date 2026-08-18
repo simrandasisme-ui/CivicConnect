@@ -3,25 +3,60 @@ import { NextResponse } from "next/server";
 import { compareIssueTexts } from "@/lib/localEmbeddings";
 import imghash from "imghash";
 
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// Helper to generate a perceptual hash from an image URL
+// Helper to send email notifications via Native Fetch
+async function sendNotificationEmail(email: string, category: string, isMerged: boolean, ticketId: string) {
+  if (!email) return;
+
+  // Let's print the key just to absolutely guarantee Next.js is reading it
+  console.log("[DEBUG] Checking API Key:", process.env.BREVO_API_KEY ? "Key exists" : "KEY IS MISSING!");
+  
+  const subject = isMerged
+    ? `Update: Your ${category} report has been linked to an active ticket`
+    : `CivicConnect: Your report for ${category} has been received`;
+    
+  const textContent = isMerged
+    ? `Hello,\n\nWe noticed a similar issue was already reported nearby. To help municipal teams resolve it faster, your report has been merged with the existing active tracking ticket (${ticketId}). You will be notified when it is resolved.`
+    : `Hello,\n\nThank you for helping improve your community. Your new report regarding "${category}" has been successfully logged (Ticket: ${ticketId}).`;
+
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "accept": "application/json",
+        "api-key": process.env.BREVO_API_KEY || "",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        sender: { name: "CivicConnect", email: "civicconnect482@gmail.com" },
+        to: [{ email: email }],
+        subject: subject,
+        textContent: textContent
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("[DEBUG] Brevo Native Fetch failed:", errorData);
+    } else {
+      console.log(`[DEBUG] Brevo Email successfully sent to ${email}`);
+    }
+  } catch (error) {
+    console.error("[DEBUG] Email send crashed:", error);
+  }
+}
+
 // Helper to generate a perceptual hash from an image URL
 async function getImageHash(imageUrl: string) {
   if (!imageUrl) return null;
   try {
-    // 1. Fetch the image directly from the Supabase URL
     const response = await fetch(imageUrl);
     const arrayBuffer = await response.arrayBuffer();
-    
-    // 2. Convert the ArrayBuffer to a Node.js Buffer
     const buffer = Buffer.from(arrayBuffer);
-    
-    // 3. Pass the raw Buffer directly to imghash
     const hash = await imghash.hash(buffer);
     return hash;
   } catch (error) {
@@ -42,6 +77,7 @@ function hammingDistance(hash1: string, hash2: string) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    console.log("[DEBUG] Received payload:", body);
     const {
       description,
       category,
@@ -49,6 +85,7 @@ export async function POST(req: Request) {
       latitude,
       longitude,
       reporterId,
+      reporterEmail,
       address,
     } = body;
 
@@ -64,20 +101,18 @@ export async function POST(req: Request) {
 
     console.log(`\n[DEBUG 1] Searching 100m radius for category: ${category} at ${lat}, ${lng}`);
 
-    // 1. Spatial Search: Check for open reports within 100m in the same category
+    // 1. Spatial Search (Radius set to 100m for GPS drift)
     const { data: nearbyReports, error: rpcError } = await supabase.rpc(
       "find_nearby_open_reports",
       {
         p_lat: lat,
         p_lng: lng,
         p_category: category,
-        p_radius_meters: 100.0,
+        p_radius_meters: 100.0, 
       }
     );
 
-    if (rpcError) {
-      console.error("[DEBUG] Spatial lookup error:", rpcError);
-    }
+    if (rpcError) console.error("[DEBUG] Spatial lookup error:", rpcError);
 
     console.log(`[DEBUG 2] RPC returned ${nearbyReports?.length || 0} nearby matches.`);
 
@@ -88,11 +123,9 @@ export async function POST(req: Request) {
       const combinedNew = `${category}: ${description || ""}`.trim();
       const combinedExisting = `${matchCandidate.category || category}: ${matchCandidate.description || ""}`.trim();
 
-      // Compare semantic text vectors locally
       const similarityScore = await compareIssueTexts(combinedNew, combinedExisting);
       console.log(`[DEBUG 3] Text Similarity Score: ${similarityScore} (Needs >= 0.75)`);
 
-      // Compare visual image hashes
       let isVisualMatch = false;
       if (imageUrl && matchCandidate.image_urls && matchCandidate.image_urls.length > 0) {
         const incomingHash = await getImageHash(imageUrl);
@@ -105,18 +138,34 @@ export async function POST(req: Request) {
         }
       }
 
-      // Merge if semantic similarity is high OR if the photos are virtually identical
+      // Merge Logic
       if (similarityScore >= 0.75 || isVisualMatch) {
-        // Use the secure RPC to increment atomically, bypassing RLS and race conditions
         const { error: updateError } = await supabase.rpc("increment_duplicate_count", {
           target_report_id: matchCandidate.id
         });
 
-        if (updateError) {
-           console.error("[DEBUG] Failed to update DB:", updateError);
+        if (updateError) console.error("[DEBUG] Failed to update DB:", updateError);
+
+        // Store secondary email and dispatch the "Merged" notification email
+        if (reporterEmail) {
+          const { data: currentReport } = await supabase
+            .from("reports")
+            .select("secondary_emails")
+            .eq("id", matchCandidate.id)
+            .single();
+
+          const emailsList = currentReport?.secondary_emails || [];
+          if (!emailsList.includes(reporterEmail)) {
+            emailsList.push(reporterEmail);
+            await supabase
+              .from("reports")
+              .update({ secondary_emails: emailsList })
+              .eq("id", matchCandidate.id);
+          }
+          
+          await sendNotificationEmail(reporterEmail, category, true, matchCandidate.id);
         }
 
-        // We estimate the new count for the immediate frontend response
         const newTotalCitizens = (matchCandidate.duplicate_count || 0) + 2; 
 
         return NextResponse.json({
@@ -128,8 +177,6 @@ export async function POST(req: Request) {
             matchCandidate.distance_meters
           )}m away). Priority upgraded to ${newTotalCitizens} citizen reports!`,
         });
-      } else {
-        console.log("[DEBUG] Scores too low (Text and Visual distinct), bypassing merge.");
       }
     }
 
@@ -147,12 +194,18 @@ export async function POST(req: Request) {
           address: address || null,
           status: "Open", 
           duplicate_count: 0, 
+          secondary_emails: [],
         },
       ])
       .select()
       .single();
 
     if (insertError) throw insertError;
+
+    // Dispatch the "Created" notification email
+    if (reporterEmail) {
+      await sendNotificationEmail(reporterEmail, category, false, newReport.id);
+    }
 
     return NextResponse.json({
       merged: false,

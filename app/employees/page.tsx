@@ -554,25 +554,25 @@ export default function EmployeeDashboardPage() {
           : "In Progress";
 
       // =====================================================
-      // UPDATE REPORT
+      // UPDATE REPORT VIA BACKEND API (Triggers Email)
       // =====================================================
 
-      const { error: updateError } =
-        await supabase
-          .from("reports")
-          .update({
-            status: dbStatus,
-            resolution_proof_url:
-              resolutionProofUrl,
-            resolution_notes:
-              briefReportNote.trim() || null,
-            assigned_worker_id:
-              worker.id || null,
-          })
-          .eq("id", activeReport.id);
+      const response = await fetch("/report/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reportId: activeReport.id,
+          status: dbStatus,
+          resolutionProofUrl: resolutionProofUrl,
+          resolutionNotes: briefReportNote.trim() || null,
+          assignedWorkerId: worker.id || null,
+        }),
+      });
 
-      if (updateError) {
-        throw updateError;
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to update ticket and send emails.");
       }
 
       await fetchDepartmentReports(worker);
