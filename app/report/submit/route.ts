@@ -77,7 +77,6 @@ function hammingDistance(hash1: string, hash2: string) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    console.log("[DEBUG] Received payload:", body);
     const {
       description,
       category,

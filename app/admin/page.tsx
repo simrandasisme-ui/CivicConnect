@@ -41,7 +41,7 @@ export default function AdminDashboard() {
   const [fetchingWorkers, setFetchingWorkers] = useState(true);
   const [editingWorker, setEditingWorker] = useState<Worker | null>(null);
   const [editLoading, setEditLoading] = useState(false);
-  
+
   // Delete State
   const [workerToDelete, setWorkerToDelete] = useState<Worker | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -123,13 +123,13 @@ export default function AdminDashboard() {
       if (error) throw error;
 
       setMessage({ type: "success", text: `${staffRole === 'officer' ? 'Officer' : 'Worker'} ${staffName} (${generatedId}) successfully registered!` });
-      
+
       // Clear form for the next entry
       setStaffName("");
       setDepartment("");
       setGeneratedId("");
       setPassword("");
-      
+
       // Refresh the worker list to show the new addition
       fetchWorkers();
     } catch (error: unknown) {
@@ -193,22 +193,22 @@ export default function AdminDashboard() {
     }
   };
 
-useEffect(() => {
-  const triggerCleanup = async () => {
-    try {
-      await supabase.rpc("delete_old_resolved_issues");
-    } catch (err) {
-      console.error("Auto-cleanup background check failed:", err);
-    }
-  };
+  useEffect(() => {
+    const triggerCleanup = async () => {
+      try {
+        await supabase.rpc("delete_old_resolved_issues");
+      } catch (err) {
+        console.error("Auto-cleanup background check failed:", err);
+      }
+    };
 
-  triggerCleanup();
-}, []);
+    triggerCleanup();
+  }, []);
 
   return (
-    <div className="min-h-screen bg-[#f4f7f5] p-4 sm:p-8">
-      <div className="mx-auto max-w-5xl">
-        
+    <div className="min-h-screen w-full overflow-x-hidden bg-[#f4f7f5] p-4 sm:p-8">
+      <div className="mx-auto w-full max-w-5xl">
+
         {/* Header */}
         <div className="mb-8 flex items-center gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#124b35] text-white shadow-md">
@@ -221,16 +221,16 @@ useEffect(() => {
         </div>
 
         {/* Registration Form */}
-        <div className="mb-8 rounded-3xl border border-[#dce4de] bg-white p-6 sm:p-8 shadow-xl">
+        <div className="mb-8 w-full rounded-3xl border border-[#dce4de] bg-white p-6 sm:p-8 shadow-xl">
           <h2 className="mb-6 flex items-center gap-2 text-xl font-bold text-[#14251c]">
             <UserPlus size={20} className="text-[#124b35]" />
             Onboard New Staff
           </h2>
 
           <form onSubmit={handleRegisterStaff} className="space-y-5">
-            
+
             {/* ROLE SELECTOR */}
-            <div className="flex rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-1.5 mb-2">
+            <div className="mb-2 flex rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-1.5">
               <button
                 type="button"
                 onClick={() => handleRoleSwitch("worker")}
@@ -314,7 +314,7 @@ useEffect(() => {
                   <button
                     type="button"
                     onClick={handleGenerateId}
-                    className="rounded-xl bg-[#eef5ef] px-4 text-sm font-bold text-[#124b35] hover:bg-[#dce4de] transition cursor-pointer whitespace-nowrap"
+                    className="cursor-pointer whitespace-nowrap rounded-xl bg-[#eef5ef] px-4 text-sm font-bold text-[#124b35] transition hover:bg-[#dce4de]"
                   >
                     Generate
                   </button>
@@ -349,7 +349,7 @@ useEffect(() => {
             <button
               type="submit"
               disabled={loading}
-              className="mt-4 w-full rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b] active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+              className="mt-4 w-full cursor-pointer rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b] active:scale-[0.98] disabled:opacity-50"
             >
               {loading ? "Registering..." : `Register ${staffRole === 'officer' ? 'Officer' : 'Worker'} Account`}
             </button>
@@ -357,7 +357,7 @@ useEffect(() => {
         </div>
 
         {/* Staff Directory List */}
-        <div className="rounded-3xl border border-[#dce4de] bg-white p-6 sm:p-8 shadow-xl">
+        <div className="w-full rounded-3xl border border-[#dce4de] bg-white p-6 sm:p-8 shadow-xl">
           <h2 className="mb-6 flex items-center gap-2 text-xl font-bold text-[#14251c]">
             <Users size={20} className="text-[#124b35]" />
             Staff Directory
@@ -372,22 +372,22 @@ useEffect(() => {
               No staff members registered yet.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+            <div className="w-full overflow-x-auto">
+              <table className="w-full min-w-[600px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-[#dce4de] text-[#718078]">
-                    <th className="pb-3 font-semibold uppercase tracking-wider text-[11px]">ID</th>
-                    <th className="pb-3 font-semibold uppercase tracking-wider text-[11px]">Role</th>
-                    <th className="pb-3 font-semibold uppercase tracking-wider text-[11px]">Name</th>
-                    <th className="pb-3 font-semibold uppercase tracking-wider text-[11px]">Department</th>
-                    <th className="pb-3 font-semibold uppercase tracking-wider text-[11px] text-right">Actions</th>
+                    <th className="whitespace-nowrap pb-3 font-semibold uppercase tracking-wider text-[11px]">ID</th>
+                    <th className="whitespace-nowrap pb-3 font-semibold uppercase tracking-wider text-[11px]">Role</th>
+                    <th className="whitespace-nowrap pb-3 font-semibold uppercase tracking-wider text-[11px]">Name</th>
+                    <th className="whitespace-nowrap pb-3 font-semibold uppercase tracking-wider text-[11px]">Department</th>
+                    <th className="whitespace-nowrap pb-3 text-right font-semibold uppercase tracking-wider text-[11px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {workersList.map((w) => (
-                    <tr key={w.dept_id} className="border-b border-[#dce4de] last:border-0 hover:bg-[#fafcf9]">
-                      <td className="py-4 font-mono font-bold text-[#124b35]">{w.dept_id}</td>
-                      <td className="py-4">
+                    <tr key={w.dept_id} className="border-b border-[#dce4de] transition hover:bg-[#fafcf9] last:border-0">
+                      <td className="whitespace-nowrap py-4 font-mono font-bold text-[#124b35]">{w.dept_id}</td>
+                      <td className="whitespace-nowrap py-4">
                         <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
                           w.role === "officer" 
                             ? "bg-amber-100 text-amber-800" 
@@ -396,19 +396,19 @@ useEffect(() => {
                           {w.role || "Worker"}
                         </span>
                       </td>
-                      <td className="py-4 font-semibold text-[#14251c]">{w.name}</td>
-                      <td className="py-4 text-[#526158]">{w.department}</td>
-                      <td className="py-4 text-right">
+                      <td className="whitespace-nowrap py-4 font-semibold text-[#14251c]">{w.name}</td>
+                      <td className="whitespace-nowrap py-4 text-[#526158]">{w.department}</td>
+                      <td className="whitespace-nowrap py-4 text-right">
                         <div className="flex justify-end gap-2">
                           <button
                             onClick={() => setEditingWorker({ ...w, password: "" })}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-[#dce4de] bg-white px-3 py-1.5 text-xs font-bold text-[#124b35] transition hover:bg-[#eef5ef] cursor-pointer"
+                            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[#dce4de] bg-white px-3 py-1.5 text-xs font-bold text-[#124b35] transition hover:bg-[#eef5ef]"
                           >
                             <Edit size={14} /> Edit
                           </button>
                           <button
                             onClick={() => setWorkerToDelete(w)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100 cursor-pointer"
+                            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100"
                           >
                             <Trash2 size={14} /> Delete
                           </button>
@@ -428,12 +428,12 @@ useEffect(() => {
       {editingWorker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#14251c]/40 p-4 backdrop-blur-sm transition-opacity">
           <div className="w-full max-w-md overflow-hidden rounded-3xl border border-[#dce4de] bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            
+
             <div className="flex items-center justify-between border-b border-[#dce4de] bg-[#fafcf9] px-6 py-4">
               <h3 className="text-lg font-bold text-[#14251c]">Edit Staff Details</h3>
               <button
                 onClick={() => setEditingWorker(null)}
-                className="rounded-full p-2 text-[#718078] hover:bg-[#eef5ef] hover:text-[#124b35] transition cursor-pointer"
+                className="cursor-pointer rounded-full p-2 text-[#718078] transition hover:bg-[#eef5ef] hover:text-[#124b35]"
               >
                 <X size={20} />
               </button>
@@ -504,14 +504,14 @@ useEffect(() => {
                 <button
                   type="button"
                   onClick={() => setEditingWorker(null)}
-                  className="w-1/3 rounded-xl border border-[#dce4de] py-3 text-xs font-bold text-[#526158] hover:bg-[#fafcf9] transition cursor-pointer"
+                  className="w-1/3 cursor-pointer rounded-xl border border-[#dce4de] py-3 text-xs font-bold text-[#526158] transition hover:bg-[#fafcf9]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={editLoading}
-                  className="flex w-2/3 items-center justify-center gap-2 rounded-xl bg-[#124b35] py-3 text-xs font-bold text-white transition hover:bg-[#0d3d2b] disabled:opacity-50 cursor-pointer"
+                  className="flex w-2/3 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#124b35] py-3 text-xs font-bold text-white transition hover:bg-[#0d3d2b] disabled:opacity-50"
                 >
                   {editLoading ? <Loader2 size={16} className="animate-spin" /> : "Save Changes"}
                 </button>
@@ -530,15 +530,15 @@ useEffect(() => {
                 <AlertTriangle size={28} />
               </div>
               <h3 className="mb-2 text-lg font-bold text-[#14251c]">Delete Staff Member?</h3>
-              <p className="text-sm text-[#718078] leading-relaxed">
+              <p className="text-sm leading-relaxed text-[#718078]">
                 Are you sure you want to remove <strong>{workerToDelete.name}</strong> ({workerToDelete.dept_id}) from the system? This action cannot be undone.
               </p>
-              
+
               <div className="mt-6 flex gap-3">
                 <button
                   type="button"
                   onClick={() => setWorkerToDelete(null)}
-                  className="w-1/2 rounded-xl border border-[#dce4de] py-3 text-xs font-bold text-[#526158] hover:bg-[#fafcf9] transition cursor-pointer"
+                  className="w-1/2 cursor-pointer rounded-xl border border-[#dce4de] py-3 text-xs font-bold text-[#526158] transition hover:bg-[#fafcf9]"
                 >
                   Cancel
                 </button>
@@ -546,7 +546,7 @@ useEffect(() => {
                   type="button"
                   onClick={handleDeleteWorker}
                   disabled={deleteLoading}
-                  className="flex w-1/2 items-center justify-center gap-2 rounded-xl bg-red-600 py-3 text-xs font-bold text-white transition hover:bg-red-700 disabled:opacity-50 cursor-pointer"
+                  className="flex w-1/2 cursor-pointer items-center justify-center gap-2 rounded-xl bg-red-600 py-3 text-xs font-bold text-white transition hover:bg-red-700 disabled:opacity-50"
                 >
                   {deleteLoading ? <Loader2 size={16} className="animate-spin" /> : "Yes, Delete"}
                 </button>

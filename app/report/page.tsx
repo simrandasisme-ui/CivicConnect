@@ -296,7 +296,7 @@ export default function CitizenReportPage() {
 
           <p className="mt-2 text-sm text-[#718078]">
             {isMerged
-              ? (mergeMessage || t("successMergedDesc") || "A matching report was already open within 25 meters. Your evidence has been attached to raise municipal priority.")
+              ? mergeMessage || (t("successMergedDesc") || "A matching report was already open within 25 meters. Your evidence has been attached to raise municipal priority.")
               : (t("successNewDesc") || "Thank you for helping improve your community. Your issue has been logged and assigned for municipal action.")}
           </p>
 

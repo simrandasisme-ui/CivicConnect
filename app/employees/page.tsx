@@ -15,6 +15,7 @@ import {
   X,
   Lock,
   Edit,
+  MapPin,
 } from "lucide-react";
 
 type Report = {
@@ -941,6 +942,23 @@ export default function EmployeeDashboardPage() {
                   </div>
                 )}
               </div>
+
+              {/* MAP NAVIGATION (FAILSAFE) */}
+                {report.latitude !== null && 
+                report.longitude !== null && 
+                report.latitude !== 0 && 
+                report.longitude !== 0 && (
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${report.latitude},${report.longitude}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open in Google Maps"
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-[#124b35] bg-[#eef5ef] px-4 py-2 text-xs font-bold text-[#124b35] transition hover:bg-[#124b35] hover:text-white"
+                >
+                <MapPin size={14} /> 
+                  Navigate to Location
+                </a>
+              )}
 
               {/* FOOTER */}
               <div className="mt-6 flex items-center justify-between border-t border-[#dce4de] pt-4">
