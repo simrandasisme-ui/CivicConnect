@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase"; 
 import { 
   Building2, 
@@ -14,7 +15,8 @@ import {
   Trash2,
   AlertTriangle,
   HardHat,
-  Landmark
+  Landmark,
+  LogOut
 } from "lucide-react";
 
 type Worker = {
@@ -27,6 +29,12 @@ type Worker = {
 };
 
 export default function AdminDashboard() {
+  const router = useRouter();
+
+  // Security & Auth State
+  const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
   // Registration State
   const [staffRole, setStaffRole] = useState<"worker" | "officer">("worker");
   const [staffName, setStaffName] = useState("");
@@ -46,9 +54,28 @@ export default function AdminDashboard() {
   const [workerToDelete, setWorkerToDelete] = useState<Worker | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  // Fetch workers on mount
+  // =========================================================
+  // SECURITY: VERIFY ADMIN ON MOUNT
+  // =========================================================
   useEffect(() => {
-    fetchWorkers();
+    setCheckingAuth(true);
+
+    // Check if they have the admin wristband
+    const isAdmin = window.localStorage.getItem("is_admin_logged_in");
+
+    if (isAdmin === "true") {
+      // Let them in!
+      setIsAdminAuthorized(true);
+      setCheckingAuth(false);
+      fetchWorkers();
+    } else {
+      // Kick them out!
+      setIsAdminAuthorized(false);
+      setCheckingAuth(false);
+      if (typeof window !== "undefined") {
+        window.location.href = "/"; 
+      }
+    }
   }, []);
 
   const fetchWorkers = async () => {
@@ -65,6 +92,24 @@ export default function AdminDashboard() {
       console.error("Failed to fetch workers:", error);
     } finally {
       setFetchingWorkers(false);
+    }
+  };
+
+  // =========================================================
+  // LOGOUT HANDLER
+  // =========================================================
+  const handleAdminLogout = async () => {
+    // 1. Explicitly wipe the admin wristband from local storage
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("is_admin_logged_in");
+    }
+
+    // 2. Terminate the Supabase auth session (just to be safe)
+    await supabase.auth.signOut();
+
+    // 3. Hard redirect back to login
+    if (typeof window !== "undefined") {
+      window.location.href = "/"; 
     }
   };
 
@@ -202,22 +247,48 @@ export default function AdminDashboard() {
       }
     };
 
-    triggerCleanup();
-  }, []);
+    if (isAdminAuthorized) {
+      triggerCleanup();
+    }
+  }, [isAdminAuthorized]);
 
+  // =========================================================
+  // LOADING / DENIED SCREEN
+  // =========================================================
+  if (checkingAuth || !isAdminAuthorized) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f4f7f5]">
+        <Loader2 className="animate-spin text-[#124b35]" size={36} />
+      </div>
+    );
+  }
+
+  // =========================================================
+  // MAIN DASHBOARD
+  // =========================================================
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-[#f4f7f5] p-4 sm:p-8">
       <div className="mx-auto w-full max-w-5xl">
 
         {/* Header */}
-        <div className="mb-8 flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#124b35] text-white shadow-md">
-            <ShieldCheck size={28} />
+        <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#124b35] text-white shadow-md">
+              <ShieldCheck size={28} />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-[#14251c]">Admin Control Panel</h1>
+              <p className="text-[#718078]">Register and manage municipal staff and budget officers</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-3xl font-bold text-[#14251c]">Admin Control Panel</h1>
-            <p className="text-[#718078]">Register and manage municipal staff and budget officers</p>
-          </div>
+
+          <button
+            type="button"
+            onClick={handleAdminLogout}
+            className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-5 py-2.5 text-sm font-bold text-red-700 transition hover:bg-red-100"
+          >
+            <LogOut size={16} /> Log Out
+          </button>
         </div>
 
         {/* Registration Form */}

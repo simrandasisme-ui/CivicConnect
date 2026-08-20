@@ -81,6 +81,7 @@ export async function POST(req: Request) {
       description,
       category,
       imageUrl,
+      voiceUrl, // <-- FIXED: Extracted voiceUrl from the request body
       latitude,
       longitude,
       reporterId,
@@ -187,6 +188,7 @@ export async function POST(req: Request) {
           description,
           category,
           image_urls: imageUrl ? [imageUrl] : [],
+          voice_url: voiceUrl || null, // <-- FIXED: Added this line to actually save it to the DB!
           latitude: lat,
           longitude: lng,
           user_id: reporterId || "Anonymous Citizen",

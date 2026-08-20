@@ -39,7 +39,11 @@ export default function OfficerDashboard() {
   const router = useRouter();
   const [officer, setOfficer] = useState<Officer | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [proposalsLoading, setProposalsLoading] = useState(false);
+  
+  // Security State
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [authError, setAuthError] = useState(false);
   
   // Create Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -52,31 +56,84 @@ export default function OfficerDashboard() {
   const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
   const [editLoading, setEditLoading] = useState(false);
 
+  // =========================================================
+  // SECURITY: VERIFY OFFICER ON MOUNT
+  // =========================================================
   useEffect(() => {
-    const session = localStorage.getItem("civic_connect_officer");
-    if (!session) {
-      router.push("/");
-      return;
-    }
-    
-    const parsedSession = JSON.parse(session);
-    setOfficer(parsedSession);
-    
-    fetchProposals();
+    const verifyOfficer = async () => {
+      setCheckingAuth(true);
+      setAuthError(false);
 
-    // Auto-cleanup trigger on load
-    const triggerCleanup = async () => {
       try {
-        await supabase.rpc("delete_old_resolved_issues");
-      } catch (err) {
-        console.error("Auto-cleanup background check failed:", err);
+        const session = window.localStorage.getItem("civic_connect_officer");
+        
+        if (session) {
+          const parsedSession = JSON.parse(session);
+          
+          if (parsedSession?.deptId) {
+            // Verify with the database to ensure the worker hasn't been deleted
+            const { data: workerData, error: workerError } = await supabase
+              .from("workers")
+              .select("*")
+              .eq("dept_id", parsedSession.deptId)
+              .maybeSingle();
+
+            if (!workerError && workerData && (workerData.role === "officer" || workerData.role === "admin")) {
+              setOfficer(parsedSession);
+              fetchProposals();
+              
+              // Trigger Auto Cleanup
+              try {
+                await supabase.rpc("delete_old_resolved_issues");
+              } catch (err) {
+                console.error("Auto-cleanup background check failed:", err);
+              }
+              
+              setCheckingAuth(false);
+              return;
+            }
+          }
+        }
+
+        // Fallback: Check Supabase session
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (user) {
+          const { data: workerData } = await supabase
+            .from("workers")
+            .select("*")
+            .eq("id", user.id)
+            .maybeSingle();
+
+          if (workerData && (workerData.role === "officer" || workerData.role === "admin")) {
+            const profile: Officer = {
+              id: workerData.id,
+              fullName: workerData.name || workerData.full_name || "Budget Officer",
+              deptId: workerData.dept_id,
+              department: workerData.department || "",
+              role: workerData.role,
+            };
+            
+            setOfficer(profile);
+            fetchProposals();
+            setCheckingAuth(false);
+            return;
+          }
+        }
+
+        // If we reach here, the user is unauthorized
+        setAuthError(true);
+      } catch (error) {
+        console.error("Auth verification error:", error);
+        setAuthError(true);
       }
     };
-    triggerCleanup();
-  }, [router]);
+
+    verifyOfficer();
+  }, []);
 
   const fetchProposals = async () => {
-    setLoading(true);
+    setProposalsLoading(true);
     try {
       const { data, error } = await supabase
         .from("budget_proposals")
@@ -88,14 +145,24 @@ export default function OfficerDashboard() {
     } catch (error) {
       console.error("Error fetching proposals:", error);
     } finally {
-      setLoading(false);
+      setProposalsLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("civic_connect_officer");
-    localStorage.removeItem("civic_connect_auth");
-    router.push("/");
+  // =========================================================
+  // LOGOUT HANDLER
+  // =========================================================
+  const handleLogout = async () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("civic_connect_officer");
+      window.localStorage.removeItem("civic_connect_auth");
+    }
+    
+    await supabase.auth.signOut();
+    
+    if (typeof window !== "undefined") {
+      window.location.href = "/";
+    }
   };
 
   const handleCreateProposal = async (e: React.FormEvent) => {
@@ -175,7 +242,20 @@ export default function OfficerDashboard() {
     }
   };
 
-  if (!officer) {
+  // =========================================================
+  // HARD REDIRECT / LOADING SCREEN
+  // =========================================================
+  if (authError) {
+    if (typeof window !== "undefined") {
+      // Clear ghost local storage data if they bypassed auth
+      window.localStorage.removeItem("civic_connect_officer");
+      window.localStorage.removeItem("civic_connect_auth");
+      window.location.href = "/";
+    }
+    return null;
+  }
+
+  if (checkingAuth || !officer) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f4f7f5]">
         <Loader2 className="animate-spin text-[#124b35]" size={40} />
@@ -183,6 +263,9 @@ export default function OfficerDashboard() {
     );
   }
 
+  // =========================================================
+  // MAIN DASHBOARD
+  // =========================================================
   const totalVotes = proposals.reduce((acc, curr) => acc + (curr.votes_count || 0), 0);
 
   return (
@@ -257,7 +340,7 @@ export default function OfficerDashboard() {
           <h2 className="text-xl font-bold text-[#14251c]">Your Department's Proposals</h2>
         </div>
 
-        {loading ? (
+        {proposalsLoading ? (
           <div className="flex py-20 justify-center">
             <Loader2 className="animate-spin text-[#124b35]" size={32} />
           </div>

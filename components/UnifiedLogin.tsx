@@ -209,6 +209,9 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
 
           finalDisplayName = "System Admin";
           finalEmail = "admin@civicconnect.com";
+          
+          
+          window.localStorage.setItem("is_admin_logged_in", "true");
         }
 
         /*

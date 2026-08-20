@@ -16,6 +16,7 @@ import {
   Lock,
   Edit,
   MapPin,
+  LogOut,
 } from "lucide-react";
 
 type Report = {
@@ -186,7 +187,7 @@ export default function EmployeeDashboardPage() {
   const [updating, setUpdating] = useState(false);
 
   // =========================================================
-  // LOAD WORKER
+  // LOAD WORKER & SECURITY
   // =========================================================
 
   useEffect(() => {
@@ -195,46 +196,21 @@ export default function EmployeeDashboardPage() {
       setAuthError(false);
 
       try {
-        /*
-         * IMPORTANT:
-         *
-         * Worker login is NOT Supabase email authentication.
-         * UnifiedLogin stores the worker in localStorage after
-         * verifying EMP-xxxxx + password.
-         *
-         * Therefore we first read civic_connect_worker.
-         */
-
         const storedWorker = window.localStorage.getItem(
           "civic_connect_worker"
         );
-
-        // TEMP DEBUG — remove after fixing
-        console.log("[DEBUG] Raw localStorage civic_connect_worker:", storedWorker);
 
         if (storedWorker) {
           try {
             const parsedWorker = JSON.parse(storedWorker);
 
-            // TEMP DEBUG — remove after fixing
-            console.log("[DEBUG] Parsed worker from localStorage:", parsedWorker);
-
             if (parsedWorker?.deptId) {
-              /*
-               * We have enough information to identify the worker.
-               * Now fetch the latest worker profile from the database
-               * using dept_id.
-               */
-
               const { data: workerData, error: workerError } =
                 await supabase
                   .from("workers")
                   .select("*")
                   .eq("dept_id", parsedWorker.deptId)
                   .maybeSingle();
-
-              // TEMP DEBUG — remove after fixing
-              console.log("[DEBUG] DB lookup by dept_id:", parsedWorker.deptId, "-> result:", workerData, "error:", workerError);
 
               if (workerError) {
                 console.error(
@@ -262,24 +238,10 @@ export default function EmployeeDashboardPage() {
                   role: workerData.role || "worker",
                 };
 
-                // TEMP DEBUG — remove after fixing
-                console.log("[DEBUG] Final worker profile (from DB row):", profile);
-                console.log("[DEBUG] JSON of department string:", JSON.stringify(profile.department));
-
                 setWorker(profile);
-
                 await fetchDepartmentReports(profile);
-
                 return;
               }
-
-              /*
-               * Database profile was not found, but local login
-               * information exists.
-               *
-               * This allows the dashboard to still identify the
-               * worker while we debug the database/RLS separately.
-               */
 
               const fallbackProfile: WorkerProfile = {
                 id: parsedWorker.id || "",
@@ -291,14 +253,8 @@ export default function EmployeeDashboardPage() {
                 role: parsedWorker.role || "worker",
               };
 
-              // TEMP DEBUG — remove after fixing
-              console.warn("[DEBUG] No DB row found for dept_id — using localStorage fallback profile:", fallbackProfile);
-              console.log("[DEBUG] JSON of fallback department string:", JSON.stringify(fallbackProfile.department));
-
               setWorker(fallbackProfile);
-
               await fetchDepartmentReports(fallbackProfile);
-
               return;
             }
           } catch (storageError) {
@@ -310,11 +266,8 @@ export default function EmployeeDashboardPage() {
         }
 
         /*
-         * FALLBACK:
-         *
-         * If there is no custom worker session, try Supabase Auth.
+         * FALLBACK: Supabase Auth
          */
-
         const {
           data: { user },
           error: userError,
@@ -355,7 +308,6 @@ export default function EmployeeDashboardPage() {
         };
 
         setWorker(profile);
-
         await fetchDepartmentReports(profile);
       } catch (error) {
         console.error("Profile fetch error:", error);
@@ -369,6 +321,19 @@ export default function EmployeeDashboardPage() {
   }, []);
 
   // =========================================================
+  // LOGOUT HANDLER
+  // =========================================================
+  const handleWorkerLogout = async () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("civic_connect_worker");
+    }
+    await supabase.auth.signOut();
+    if (typeof window !== "undefined") {
+      window.location.href = "/";
+    }
+  };
+
+  // =========================================================
   // FETCH REPORTS
   // =========================================================
 
@@ -378,14 +343,6 @@ export default function EmployeeDashboardPage() {
     setLoadingReports(true);
 
     try {
-      /*
-       * We intentionally fetch reports first and then perform
-       * department matching in the browser.
-       *
-       * This makes the matching flexible while we standardize
-       * department/category names in the database later.
-       */
-
       const { data, error } = await supabase
         .from("reports")
         .select("*")
@@ -405,16 +362,6 @@ export default function EmployeeDashboardPage() {
 
       const allReports = (data || []) as Report[];
 
-      /*
-       * Show:
-       *
-       * 1. Reports explicitly assigned to this worker
-       * OR
-       *
-       * 2. Reports whose category belongs to this worker's
-       *    department.
-       */
-
       const departmentReports = allReports.filter((report) => {
         const explicitlyAssigned =
           report.assigned_worker_id &&
@@ -425,43 +372,8 @@ export default function EmployeeDashboardPage() {
           currentWorker.department
         );
 
-        // TEMP DEBUG — remove after fixing
-        console.log("[DEBUG] Match check:", {
-          reportId: report.id,
-          reportCategoryRaw: report.category,
-          reportCategoryJSON: JSON.stringify(report.category),
-          reportCanonical: getCanonicalDepartment(report.category),
-          workerDepartmentRaw: currentWorker.department,
-          workerDepartmentJSON: JSON.stringify(currentWorker.department),
-          workerCanonical: getCanonicalDepartment(currentWorker.department),
-          explicitlyAssigned,
-          sameDepartment,
-        });
-
         return explicitlyAssigned || sameDepartment;
       });
-
-      console.log(
-        "Worker department:",
-        currentWorker.department
-      );
-
-      console.log(
-        "Canonical department:",
-        getCanonicalDepartment(
-          currentWorker.department
-        )
-      );
-
-      console.log(
-        "All reports:",
-        allReports.length
-      );
-
-      console.log(
-        "Department reports:",
-        departmentReports.length
-      );
 
       setReports(departmentReports);
     } catch (error) {
@@ -504,10 +416,6 @@ export default function EmployeeDashboardPage() {
       let resolutionProofUrl =
         activeReport.resolution_proof_url;
 
-      // =====================================================
-      // UPLOAD RESOLUTION PROOF
-      // =====================================================
-
       if (proofFile) {
         const fileExt =
           proofFile.name.split(".").pop() || "jpg";
@@ -543,20 +451,12 @@ export default function EmployeeDashboardPage() {
           urlData.publicUrl;
       }
 
-      // =====================================================
-      // CONVERT UI STATUS TO DATABASE STATUS
-      // =====================================================
-
       const dbStatus =
         newStatus === "Not Started"
           ? "Open"
           : newStatus === "Completed"
           ? "Resolved"
           : "In Progress";
-
-      // =====================================================
-      // UPDATE REPORT VIA BACKEND API (Triggers Email)
-      // =====================================================
 
       const response = await fetch("/report/resolve", {
         method: "POST",
@@ -631,7 +531,7 @@ export default function EmployeeDashboardPage() {
         });
 
   // =========================================================
-  // LOADING
+  // LOADING / HARD KICK REDIRECT
   // =========================================================
 
   if (loadingProfile) {
@@ -645,31 +545,11 @@ export default function EmployeeDashboardPage() {
     );
   }
 
-  // =========================================================
-  // ACCESS DENIED
-  // =========================================================
-
   if (authError || !worker) {
-    return (
-      <div className="mx-auto flex min-h-[50vh] max-w-md items-center justify-center px-4">
-        <div className="w-full rounded-3xl border border-[#dce4de] bg-white p-8 text-center shadow-lg">
-          <AlertCircle
-            size={48}
-            className="mx-auto mb-4 text-red-500"
-          />
-
-          <h2 className="text-xl font-bold text-[#14251c]">
-            Access Denied
-          </h2>
-
-          <p className="mt-2 text-sm text-[#718078]">
-            We could not verify your worker
-            profile. Please log in again using
-            your Employee ID.
-          </p>
-        </div>
-      </div>
-    );
+    if (typeof window !== "undefined") {
+      window.location.href = "/";
+    }
+    return null;
   }
 
   // =========================================================
@@ -743,6 +623,15 @@ export default function EmployeeDashboardPage() {
               </p>
             </div>
           )}
+
+          <button
+            type="button"
+            onClick={handleWorkerLogout}
+            className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-700 transition hover:bg-red-100"
+          >
+            <LogOut size={16} />
+            Log Out
+          </button>
         </div>
       </div>
 
@@ -900,7 +789,7 @@ export default function EmployeeDashboardPage() {
                     </div>
                   )}
 
-                {/* VOICE */}
+                {/* VOICE - FIXED HEIGHT AND FALLBACK ADDED */}
                 {report.voice_url && (
                   <div className="mt-3 rounded-2xl border border-[#dce4de] bg-[#f0f4f1] p-3">
                     <p className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#124b35]">
@@ -910,8 +799,12 @@ export default function EmployeeDashboardPage() {
                     <audio
                       controls
                       src={report.voice_url}
-                      className="h-8 w-full"
-                    />
+                      className="mt-2 w-full"
+                    >
+                      <a href={report.voice_url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#124b35] underline">
+                        Download/Listen to Audio
+                      </a>
+                    </audio>
                   </div>
                 )}
 
