@@ -12,7 +12,6 @@ const supabase = createClient(
 async function sendNotificationEmail(email: string, category: string, isMerged: boolean, ticketId: string) {
   if (!email) return;
 
-  // Let's print the key just to absolutely guarantee Next.js is reading it
   console.log("[DEBUG] Checking API Key:", process.env.BREVO_API_KEY ? "Key exists" : "KEY IS MISSING!");
   
   const subject = isMerged
@@ -81,13 +80,23 @@ export async function POST(req: Request) {
       description,
       category,
       imageUrl,
-      voiceUrl, // <-- FIXED: Extracted voiceUrl from the request body
+      voiceUrl,
       latitude,
       longitude,
       reporterId,
       reporterEmail,
       address,
+      anonymous, // <-- FIXED: We now explicitly extract the anonymous flag from the frontend
     } = body;
+
+    // =====================================================================
+    // SECURITY FIREWALL: STRICT ANONYMITY ENFORCEMENT
+    // If the anonymous toggle is true, we immediately destroy the email
+    // and force the ID to "Anonymous Citizen" so it CANNOT leak.
+    // =====================================================================
+    const isAnon = anonymous === true;
+    const safeReporterId = isAnon ? "Anonymous Citizen" : (reporterId || "Registered Citizen");
+    const safeReporterEmail = isAnon ? null : reporterEmail;
 
     if (!category || latitude === undefined || longitude === undefined) {
       return NextResponse.json(
@@ -147,7 +156,8 @@ export async function POST(req: Request) {
         if (updateError) console.error("[DEBUG] Failed to update DB:", updateError);
 
         // Store secondary email and dispatch the "Merged" notification email
-        if (reporterEmail) {
+        // We use safeReporterEmail which is strictly NULL if anonymous
+        if (safeReporterEmail) {
           const { data: currentReport } = await supabase
             .from("reports")
             .select("secondary_emails")
@@ -155,15 +165,15 @@ export async function POST(req: Request) {
             .single();
 
           const emailsList = currentReport?.secondary_emails || [];
-          if (!emailsList.includes(reporterEmail)) {
-            emailsList.push(reporterEmail);
+          if (!emailsList.includes(safeReporterEmail)) {
+            emailsList.push(safeReporterEmail);
             await supabase
               .from("reports")
               .update({ secondary_emails: emailsList })
               .eq("id", matchCandidate.id);
           }
           
-          await sendNotificationEmail(reporterEmail, category, true, matchCandidate.id);
+          await sendNotificationEmail(safeReporterEmail, category, true, matchCandidate.id);
         }
 
         const newTotalCitizens = (matchCandidate.duplicate_count || 0) + 2; 
@@ -188,10 +198,11 @@ export async function POST(req: Request) {
           description,
           category,
           image_urls: imageUrl ? [imageUrl] : [],
-          voice_url: voiceUrl || null, // <-- FIXED: Added this line to actually save it to the DB!
+          voice_url: voiceUrl || null, 
           latitude: lat,
           longitude: lng,
-          user_id: reporterId || "Anonymous Citizen",
+          // user_id now perfectly maps to safeReporterId which handles anonymity
+          user_id: safeReporterId, 
           address: address || null,
           status: "Open", 
           duplicate_count: 0, 
@@ -203,9 +214,9 @@ export async function POST(req: Request) {
 
     if (insertError) throw insertError;
 
-    // Dispatch the "Created" notification email
-    if (reporterEmail) {
-      await sendNotificationEmail(reporterEmail, category, false, newReport.id);
+    // Dispatch the "Created" notification email ONLY if not anonymous
+    if (safeReporterEmail) {
+      await sendNotificationEmail(safeReporterEmail, category, false, newReport.id);
     }
 
     return NextResponse.json({

@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLanguage } from "@/context/LanguageContext";
 import {
@@ -16,10 +17,12 @@ import {
   Send,
   Trash2,
   X,
+  LogOut,
 } from "lucide-react";
 
 export default function CitizenReportPage() {
   const { t } = useLanguage();
+  const router = useRouter();
 
   const [category, setCategory] = useState("Garbage");
   const [description, setDescription] = useState("");
@@ -157,7 +160,7 @@ export default function CitizenReportPage() {
     setAudioBlob(null);
   };
 
-  /* ---------------- 4. FORM SUBMISSION VIA /reports/submit ---------------- */
+  /* ---------------- 4. FORM SUBMISSION ---------------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -169,17 +172,19 @@ export default function CitizenReportPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. Get current logged in user (or fallback to Anonymous)
+      // 1. Get current logged in user
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
-      const currentUserEmail = user?.email || (anonymous ? "Anonymous Citizen" : "Registered Citizen");
+      // 2. Force anonymous strings and nullify the email if checked
+      const finalReporterId = anonymous ? "Anonymous Citizen" : (user?.email || "Registered Citizen");
+      const finalReporterEmail = anonymous ? null : (user?.email || null);
 
       let uploadedPhotoUrl = "";
       let uploadedAudioUrl = "";
 
-      // Step A: Upload Photo to Supabase Storage
+      // Step A: Upload Photo
       const fileExt = photo.name.split(".").pop() || "jpg";
       const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
       const filePath = `issue-photos/${fileName}`;
@@ -198,7 +203,7 @@ export default function CitizenReportPage() {
 
       uploadedPhotoUrl = urlData.publicUrl;
 
-      // Step B: Upload Voice Recording (If Recorded)
+      // Step B: Upload Voice Recording
       if (audioBlob) {
         const audioName = `voice_${Date.now()}_${Math.random().toString(36).substring(7)}.webm`;
         const audioPath = `issue-voices/${audioName}`;
@@ -215,7 +220,7 @@ export default function CitizenReportPage() {
         }
       }
 
-      // Step C: Send report to the Local Deduplication API Endpoint
+      // Step C: Send report
       const payload = {
         title: `${category} Issue`,
         description: description.trim() || `${category} reported at current location.`,
@@ -227,8 +232,8 @@ export default function CitizenReportPage() {
         address: location
           ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`
           : "Location Captured via GPS",
-        reporterId: currentUserEmail,
-        reporterEmail: user?.email || null,
+        reporterId: finalReporterId,
+        reporterEmail: finalReporterEmail,
         anonymous,
       };
 
@@ -244,7 +249,7 @@ export default function CitizenReportPage() {
         throw new Error(result.error || "Failed to submit report.");
       }
 
-      // Step D: Handle Response (Merged vs New)
+      // Step D: Handle Response
       if (result.merged) {
         setIsMerged(true);
         setMergeMessage(result.message);
@@ -275,6 +280,16 @@ export default function CitizenReportPage() {
     }
   };
 
+  /* ---------------- 5. LOGOUT HANDLER ---------------- */
+  const handleLogout = async () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("civic_connect_auth");
+      document.cookie = "civic_connect_auth=; path=/; max-age=0;";
+    }
+    await supabase.auth.signOut();
+    router.push("/");
+  };
+  
   /* ---------------- SUCCESS SCREEN ---------------- */
   if (submitted) {
     return (
@@ -336,14 +351,26 @@ export default function CitizenReportPage() {
   /* ---------------- REPORT FORM ---------------- */
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-8">
-        <span className="text-xs font-bold uppercase tracking-widest text-[#124b35]">
-          {t("citizenIntake")}
-        </span>
-        <h1 className="mt-1 text-3xl font-extrabold text-[#14251c] sm:text-4xl">
-          {t("reportIssue") || "Report an Issue"}
-        </h1>
-        <p className="mt-2 text-sm text-[#718078]">{t("reportSubtext")}</p>
+      
+      {/* HEADER WITH LOGOUT */}
+      <div className="mb-8 flex items-start justify-between">
+        <div>
+          <span className="text-xs font-bold uppercase tracking-widest text-[#124b35]">
+            {t("citizenIntake")}
+          </span>
+          <h1 className="mt-1 text-3xl font-extrabold text-[#14251c] sm:text-4xl">
+            {t("reportIssue") || "Report an Issue"}
+          </h1>
+          <p className="mt-2 text-sm text-[#718078]">{t("reportSubtext")}</p>
+        </div>
+        
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-bold text-red-700 transition hover:bg-red-100 hover:border-red-300 cursor-pointer"
+        >
+          <LogOut size={14} />
+          <span className="hidden sm:inline">Log Out</span>
+        </button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
