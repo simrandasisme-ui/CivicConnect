@@ -5,7 +5,8 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: [
     "localhost",
     "192.168.1.15",
-    "192.168.*"
+    "192.168.1.*",
+    "192.168.1.10",
   ],
 
   // 2. Allow external image hosting/previews:
