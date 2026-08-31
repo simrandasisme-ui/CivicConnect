@@ -20,31 +20,22 @@ const nextConfig: NextConfig = {
   },
 
   // 3. External packages for server execution (Next.js 15+):
+  // These are kept as separate files instead of being bundled,
+  // so their native binaries (like onnxruntime-node's .so file)
+  // get copied correctly when deployed.
   serverExternalPackages: [
     "@xenova/transformers",
+    "onnxruntime-node",
     "imghash",
     "jimp",
     "@cwasm/nsbmp",
   ],
 
-  // 4. Backward compatibility for Next.js 13/14:
-  experimental: {
-    serverComponentsExternalPackages: [
-      "@xenova/transformers",
-      "imghash",
-      "jimp",
-      "@cwasm/nsbmp",
-    ],
-  },
-
-  // 5. Webpack override to bypass native C++ binary crashes:
-  webpack: (config) => {
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      "sharp$": false,
-      "onnxruntime-node$": false,
-    };
-    return config;
+  // 4. Make sure the native onnxruntime-node binary is traced and
+  // included in the deployed function for your report-submit route.
+  // Update the path below if your actual route differs.
+  outputFileTracingIncludes: {
+    "/api/report/submit": ["./node_modules/onnxruntime-node/**/*"],
   },
 };
 
