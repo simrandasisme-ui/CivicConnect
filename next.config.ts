@@ -22,6 +22,11 @@ const nextConfig: NextConfig = {
 
   // 3. Enable server-side local embeddings (Transformers.js / ONNX):
   serverExternalPackages: ["@xenova/transformers", "onnxruntime-node","imghash", "jimp"],
+
+  experimental: {
+    // Tells Webpack not to bundle these native AI modules, allowing Vercel to copy the .so files correctly.
+    serverComponentsExternalPackages: ["@xenova/transformers", "onnxruntime-node"],
+  },
 };
 
 export default nextConfig;
