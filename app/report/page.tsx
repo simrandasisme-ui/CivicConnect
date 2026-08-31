@@ -2,8 +2,10 @@
 
 import { ChangeEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { supabase } from "@/lib/supabase";
 import { useLanguage } from "@/context/LanguageContext";
+import { validateCoordinates } from "@/lib/geoUtils";
 import {
   Camera,
   CheckCircle2,
@@ -20,6 +22,12 @@ import {
   LogOut,
 } from "lucide-react";
 
+// Dynamically import map component with SSR disabled
+const TetheredLocationPicker = dynamic(
+  () => import("@/components/TetheredLocationPicker"),
+  { ssr: false }
+);
+
 export default function CitizenReportPage() {
   const { t } = useLanguage();
   const router = useRouter();
@@ -28,12 +36,11 @@ export default function CitizenReportPage() {
   const [description, setDescription] = useState("");
   const [anonymous, setAnonymous] = useState(false);
 
-  // GPS State
-  const [location, setLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
+  // GPS & Map State
+  const [physicalGps, setPhysicalGps] = useState<{ lat: number; lng: number } | null>(null);
+  const [pinnedLocation, setPinnedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [gpsError, setGpsError] = useState<string | null>(null);
 
   // Photo & Preview State
   const [photo, setPhoto] = useState<File | null>(null);
@@ -70,26 +77,36 @@ export default function CitizenReportPage() {
 
   /* ---------------- 1. GPS LOCATION ---------------- */
   const getLocation = () => {
+    setGpsError(null);
     if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser.");
+      setGpsError("Geolocation is not supported by your browser.");
       return;
     }
 
     setLocationLoading(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
+        const coords = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        };
+        
+        if (coords.lat === 0 && coords.lng === 0) {
+          setGpsError("Invalid GPS signal (0, 0). Please check your settings.");
+          setLocationLoading(false);
+          return;
+        }
+
+        setPhysicalGps(coords);
+        setPinnedLocation(coords);
         setLocationLoading(false);
       },
       (error) => {
         setLocationLoading(false);
-        alert("Unable to detect location. Please grant location permissions.");
+        setGpsError("Unable to detect location. Please grant permissions.");
         console.error("GPS Error:", error);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   };
 
@@ -169,15 +186,18 @@ export default function CitizenReportPage() {
       return;
     }
 
+    // Pre-flight check for Location constraints
+    const locationValidation = validateCoordinates(physicalGps, pinnedLocation, 100);
+    if (!locationValidation.valid) {
+      alert(`Location Error: ${locationValidation.error}`);
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      // 1. Get current logged in user
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
 
-      // 2. Force anonymous strings and nullify the email if checked
       const finalReporterId = anonymous ? "Anonymous Citizen" : (user?.email || "Registered Citizen");
       const finalReporterEmail = anonymous ? null : (user?.email || null);
 
@@ -193,14 +213,9 @@ export default function CitizenReportPage() {
         .from("issue-media")
         .upload(filePath, photo, { contentType: photo.type });
 
-      if (uploadError) {
-        throw new Error(`Photo upload failed: ${uploadError.message}`);
-      }
+      if (uploadError) throw new Error(`Photo upload failed: ${uploadError.message}`);
 
-      const { data: urlData } = supabase.storage
-        .from("issue-media")
-        .getPublicUrl(filePath);
-
+      const { data: urlData } = supabase.storage.from("issue-media").getPublicUrl(filePath);
       uploadedPhotoUrl = urlData.publicUrl;
 
       // Step B: Upload Voice Recording
@@ -213,9 +228,7 @@ export default function CitizenReportPage() {
           .upload(audioPath, audioBlob, { contentType: "audio/webm" });
 
         if (!audioUploadError) {
-          const { data: audioUrlData } = supabase.storage
-            .from("issue-media")
-            .getPublicUrl(audioPath);
+          const { data: audioUrlData } = supabase.storage.from("issue-media").getPublicUrl(audioPath);
           uploadedAudioUrl = audioUrlData.publicUrl;
         }
       }
@@ -227,11 +240,9 @@ export default function CitizenReportPage() {
         category,
         imageUrl: uploadedPhotoUrl,
         voiceUrl: uploadedAudioUrl || null,
-        latitude: location?.latitude ?? 0,
-        longitude: location?.longitude ?? 0,
-        address: location
-          ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`
-          : "Location Captured via GPS",
+        latitude: pinnedLocation?.lat ?? 0,
+        longitude: pinnedLocation?.lng ?? 0,
+        address: pinnedLocation ? `${pinnedLocation.lat.toFixed(5)}, ${pinnedLocation.lng.toFixed(5)}` : "Location Captured via GPS",
         reporterId: finalReporterId,
         reporterEmail: finalReporterEmail,
         anonymous,
@@ -245,35 +256,22 @@ export default function CitizenReportPage() {
 
       const result = await res.json();
 
-      if (!res.ok) {
-        throw new Error(result.error || "Failed to submit report.");
-      }
+      if (!res.ok) throw new Error(result.error || "Failed to submit report.");
 
-      // Step D: Handle Response
       if (result.merged) {
         setIsMerged(true);
         setMergeMessage(result.message);
-        setReportId(
-          result.parentReportId
-            ? result.parentReportId.slice(0, 8).toUpperCase()
-            : `BOOST-${Math.floor(1000 + Math.random() * 9000)}`
-        );
+        setReportId(result.parentReportId ? result.parentReportId.slice(0, 8).toUpperCase() : `BOOST-${Math.floor(1000 + Math.random() * 9000)}`);
       } else {
         setIsMerged(false);
         setMergeMessage("");
-        const newId = result.report?.id
-          ? result.report.id.slice(0, 8).toUpperCase()
-          : `CC-${Date.now().toString().slice(-6)}`;
-        setReportId(newId);
+        setReportId(result.report?.id ? result.report.id.slice(0, 8).toUpperCase() : `CC-${Date.now().toString().slice(-6)}`);
       }
 
       setSubmitted(true);
     } catch (err: unknown) {
       console.error("Submission failed:", err);
-      const msg =
-        err instanceof Error
-          ? err.message
-          : "Failed to submit report. Please try again.";
+      const msg = err instanceof Error ? err.message : "Failed to submit report. Please try again.";
       alert(msg);
     } finally {
       setIsSubmitting(false);
@@ -295,37 +293,21 @@ export default function CitizenReportPage() {
     return (
       <div className="mx-auto flex min-h-[75vh] max-w-xl items-center justify-center px-4 py-12">
         <div className="w-full rounded-3xl border border-[#dce4de] bg-white p-8 text-center shadow-xl sm:p-10">
-          <div
-            className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full ${
-              isMerged ? "bg-amber-100 text-amber-700" : "bg-[#eef5ef] text-[#124b35]"
-            }`}
-          >
+          <div className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full ${isMerged ? "bg-amber-100 text-amber-700" : "bg-[#eef5ef] text-[#124b35]"}`}>
             {isMerged ? <Flame size={42} className="animate-pulse" /> : <CheckCircle2 size={42} />}
           </div>
-
           <h2 className="mt-6 text-2xl font-bold text-[#14251c] sm:text-3xl">
-            {isMerged 
-              ? (t("successMergedTitle") || "Report Merged & Priority Boosted!") 
-              : (t("successNewTitle") || "Report Submitted Successfully!")}
+            {isMerged ? (t("successMergedTitle") || "Report Merged & Priority Boosted!") : (t("successNewTitle") || "Report Submitted Successfully!")}
           </h2>
-
           <p className="mt-2 text-sm text-[#718078]">
-            {isMerged
-              ? mergeMessage || (t("successMergedDesc") || "A matching report was already open within 25 meters. Your evidence has been attached to raise municipal priority.")
-              : (t("successNewDesc") || "Thank you for helping improve your community. Your issue has been logged and assigned for municipal action.")}
+            {isMerged ? mergeMessage || (t("successMergedDesc") || "A matching report was already open within 25 meters. Your evidence has been attached to raise municipal priority.") : (t("successNewDesc") || "Thank you for helping improve your community. Your issue has been logged and assigned for municipal action.")}
           </p>
-
           <div className="mt-6 rounded-2xl bg-[#fafcf9] p-4 text-center border border-[#dce4de]">
             <p className="text-xs font-bold uppercase tracking-wider text-[#718078]">
-              {isMerged 
-                ? (t("mergedTicketLabel") || "Linked Master Ticket ID") 
-                : (t("newTicketLabel") || "Tracking Reference ID")}
+              {isMerged ? (t("mergedTicketLabel") || "Linked Master Ticket ID") : (t("newTicketLabel") || "Tracking Reference ID")}
             </p>
-            <p className="mt-1 font-mono text-xl font-extrabold text-[#124b35]">
-              #{reportId}
-            </p>
+            <p className="mt-1 font-mono text-xl font-extrabold text-[#124b35]">#{reportId}</p>
           </div>
-
           <button
             type="button"
             onClick={() => {
@@ -336,7 +318,8 @@ export default function CitizenReportPage() {
               setPhotoName("");
               setImagePreview(null);
               setDescription("");
-              setLocation(null);
+              setPhysicalGps(null);
+              setPinnedLocation(null);
               deleteRecording();
             }}
             className="mt-8 w-full rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b] cursor-pointer"
@@ -351,23 +334,14 @@ export default function CitizenReportPage() {
   /* ---------------- REPORT FORM ---------------- */
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-      
       {/* HEADER WITH LOGOUT */}
       <div className="mb-8 flex items-start justify-between">
         <div>
-          <span className="text-xs font-bold uppercase tracking-widest text-[#124b35]">
-            {t("citizenIntake")}
-          </span>
-          <h1 className="mt-1 text-3xl font-extrabold text-[#14251c] sm:text-4xl">
-            {t("reportIssue") || "Report an Issue"}
-          </h1>
+          <span className="text-xs font-bold uppercase tracking-widest text-[#124b35]">{t("citizenIntake")}</span>
+          <h1 className="mt-1 text-3xl font-extrabold text-[#14251c] sm:text-4xl">{t("reportIssue") || "Report an Issue"}</h1>
           <p className="mt-2 text-sm text-[#718078]">{t("reportSubtext")}</p>
         </div>
-        
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-bold text-red-700 transition hover:bg-red-100 hover:border-red-300 cursor-pointer"
-        >
+        <button onClick={handleLogout} className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-bold text-red-700 transition hover:bg-red-100 hover:border-red-300 cursor-pointer">
           <LogOut size={14} />
           <span className="hidden sm:inline">Log Out</span>
         </button>
@@ -376,10 +350,7 @@ export default function CitizenReportPage() {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* 1. CATEGORY SELECTOR */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
-          <label className="text-base font-bold text-[#14251c]">
-            {t("selectCategory") || "Select Category"}{" "}
-            <span className="text-red-500">*</span>
-          </label>
+          <label className="text-base font-bold text-[#14251c]">{t("selectCategory") || "Select Category"} <span className="text-red-500">*</span></label>
           <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             {categories.map((cat) => {
               const selected = category === cat.value;
@@ -388,11 +359,7 @@ export default function CitizenReportPage() {
                   key={cat.value}
                   type="button"
                   onClick={() => setCategory(cat.value)}
-                  className={`cursor-pointer rounded-xl border px-3 py-3 text-xs font-bold transition ${
-                    selected
-                      ? "border-[#124b35] bg-[#eef5ef] text-[#124b35] ring-2 ring-[#124b35]/20"
-                      : "border-[#dce4de] bg-white text-[#526158] hover:bg-[#fafcf9]"
-                  }`}
+                  className={`cursor-pointer rounded-xl border px-3 py-3 text-xs font-bold transition ${selected ? "border-[#124b35] bg-[#eef5ef] text-[#124b35] ring-2 ring-[#124b35]/20" : "border-[#dce4de] bg-white text-[#526158] hover:bg-[#fafcf9]"}`}
                 >
                   {t(cat.key as keyof typeof import("@/context/LanguageContext").TranslationsMap)}
                 </button>
@@ -404,142 +371,65 @@ export default function CitizenReportPage() {
         {/* 2. PHOTO UPLOAD / CAMERA (COMPULSORY) */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
           <div className="mb-4 flex items-center justify-between">
-            <label className="text-base font-bold text-[#14251c]">
-              {t("uploadPhoto") || "Attach Evidence"}{" "}
-              <span className="text-red-500">*</span>
-            </label>
-            <span className="text-xs font-bold text-red-500">
-              {t("requiredText")}
-            </span>
+            <label className="text-base font-bold text-[#14251c]">{t("uploadPhoto") || "Attach Evidence"} <span className="text-red-500">*</span></label>
+            <span className="text-xs font-bold text-red-500">{t("requiredText")}</span>
           </div>
-
-          {/* IMAGE PREVIEW OR BUTTONS */}
           {imagePreview ? (
             <div className="relative overflow-hidden rounded-2xl border border-[#dce4de]">
-              <img
-                src={imagePreview}
-                alt="Issue preview"
-                className="h-48 w-full object-cover"
-              />
-              <button
-                type="button"
-                onClick={removePhoto}
-                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-red-600 shadow-sm backdrop-blur-sm transition hover:bg-white cursor-pointer"
-              >
+              <img src={imagePreview} alt="Issue preview" className="h-48 w-full object-cover" />
+              <button type="button" onClick={removePhoto} className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-red-600 shadow-sm backdrop-blur-sm transition hover:bg-white cursor-pointer">
                 <X size={18} />
               </button>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              {/* CAMERA BUTTON */}
-              <button
-                type="button"
-                onClick={() => cameraInputRef.current?.click()}
-                className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#124b35]/40 bg-[#eef5ef] py-6 text-[#124b35] transition hover:bg-[#dce4de] cursor-pointer"
-              >
+              <button type="button" onClick={() => cameraInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#124b35]/40 bg-[#eef5ef] py-6 text-[#124b35] transition hover:bg-[#dce4de] cursor-pointer">
                 <Camera size={28} />
                 <span className="text-xs font-bold">{t("takePhotoBtn")}</span>
               </button>
-
-              {/* GALLERY BUTTON */}
-              <button
-                type="button"
-                onClick={() => galleryInputRef.current?.click()}
-                className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#dce4de] bg-[#fafcf9] py-6 text-[#718078] transition hover:bg-white hover:text-[#14251c] cursor-pointer"
-              >
+              <button type="button" onClick={() => galleryInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[#dce4de] bg-[#fafcf9] py-6 text-[#718078] transition hover:bg-white hover:text-[#14251c] cursor-pointer">
                 <ImageIcon size={28} />
                 <span className="text-xs font-bold">{t("uploadFileBtn")}</span>
               </button>
             </div>
           )}
-
-          {/* HIDDEN INPUTS TO TRIGGER ACTIONS */}
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            ref={cameraInputRef}
-            onChange={handlePhotoChange}
-            className="hidden"
-          />
-          <input
-            type="file"
-            accept="image/*"
-            ref={galleryInputRef}
-            onChange={handlePhotoChange}
-            className="hidden"
-          />
+          <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} onChange={handlePhotoChange} className="hidden" />
+          <input type="file" accept="image/*" ref={galleryInputRef} onChange={handlePhotoChange} className="hidden" />
         </div>
 
         {/* 3. DESCRIPTION */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
-          <label className="text-base font-bold text-[#14251c]">
-            {t("describeProblem") || "Describe Issue"}{" "}
-            <span className="text-xs text-[#718078] font-normal">
-              {t("optionalText")}
-            </span>
-          </label>
+          <label className="text-base font-bold text-[#14251c]">{t("describeProblem") || "Describe Issue"} <span className="text-xs text-[#718078] font-normal">{t("optionalText")}</span></label>
           <div className="relative mt-3">
-            <FileText
-              size={18}
-              className="absolute left-4 top-4 text-[#718078]"
-            />
-            <textarea
-              rows={4}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t("describePlaceholder")}
-              className="w-full resize-none rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none transition focus:border-[#124b35] focus:ring-2 focus:ring-[#124b35]/10"
-            />
+            <FileText size={18} className="absolute left-4 top-4 text-[#718078]" />
+            <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("describePlaceholder")} className="w-full resize-none rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3.5 pl-11 pr-4 text-sm outline-none transition focus:border-[#124b35] focus:ring-2 focus:ring-[#124b35]/10" />
           </div>
         </div>
 
         {/* 4. VOICE NOTE RECORDING */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
-          <label className="text-base font-bold text-[#14251c]">
-            {t("recordVoice") || "Record Voice Note"}{" "}
-            <span className="text-xs text-[#718078] font-normal">
-              {t("optionalText")}
-            </span>
-          </label>
+          <label className="text-base font-bold text-[#14251c]">{t("recordVoice") || "Record Voice Note"} <span className="text-xs text-[#718078] font-normal">{t("optionalText")}</span></label>
           <p className="mt-1 text-xs text-[#718078]">{t("voiceHint")}</p>
-
           <div className="mt-4">
             {!isRecording && !audioUrl && (
-              <button
-                type="button"
-                onClick={startRecording}
-                className="flex items-center gap-2 rounded-xl border border-[#124b35] bg-[#eef5ef] px-4 py-2.5 text-xs font-bold text-[#124b35] hover:bg-[#124b35] hover:text-white transition cursor-pointer"
-              >
+              <button type="button" onClick={startRecording} className="flex items-center gap-2 rounded-xl border border-[#124b35] bg-[#eef5ef] px-4 py-2.5 text-xs font-bold text-[#124b35] hover:bg-[#124b35] hover:text-white transition cursor-pointer">
                 <Mic size={16} />
                 {t("startVoiceBtn")}
               </button>
             )}
-
             {isRecording && (
               <div className="flex items-center gap-4 rounded-xl bg-red-50 p-4 border border-red-200">
                 <span className="h-3 w-3 animate-ping rounded-full bg-red-500" />
-                <span className="text-xs font-bold text-red-600">
-                  Recording audio...
-                </span>
-                <button
-                  type="button"
-                  onClick={stopRecording}
-                  className="ml-auto flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white cursor-pointer"
-                >
+                <span className="text-xs font-bold text-red-600">Recording audio...</span>
+                <button type="button" onClick={stopRecording} className="ml-auto flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white cursor-pointer">
                   <MicOff size={14} /> Stop
                 </button>
               </div>
             )}
-
             {audioUrl && !isRecording && (
               <div className="flex flex-col gap-2 rounded-2xl bg-[#fafcf9] p-4 border border-[#dce4de]">
                 <audio controls src={audioUrl} className="w-full h-10" />
-                <button
-                  type="button"
-                  onClick={deleteRecording}
-                  className="self-end flex items-center gap-1 text-xs font-bold text-red-500 hover:underline mt-1 cursor-pointer"
-                >
+                <button type="button" onClick={deleteRecording} className="self-end flex items-center gap-1 text-xs font-bold text-red-500 hover:underline mt-1 cursor-pointer">
                   <Trash2 size={14} /> Remove recording
                 </button>
               </div>
@@ -547,37 +437,47 @@ export default function CitizenReportPage() {
           </div>
         </div>
 
-        {/* 5. GPS LOCATION CAPTURE */}
+        {/* 5. GPS LOCATION CAPTURE & MAP PINNING */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
           <label className="text-base font-bold text-[#14251c]">
-            {t("attachGps") || "Attach GPS Location"}
+            {t("attachGps") || "Location Verification"} <span className="text-red-500">*</span>
           </label>
-          <p className="mt-1 text-xs text-[#718078]">{t("gpsHint")}</p>
+          <p className="mt-1 text-xs text-[#718078]">Detect your physical location first, then fine-tune the pin if necessary.</p>
 
-          <div className="mt-4">
-            {!location ? (
-              <button
-                type="button"
-                onClick={getLocation}
-                disabled={locationLoading}
-                className="flex items-center gap-2 rounded-xl border border-[#dce4de] bg-[#fafcf9] px-4 py-3 text-xs font-bold text-[#14251c] hover:border-[#124b35] cursor-pointer"
-              >
-                {locationLoading ? (
-                  <Loader2 size={16} className="animate-spin text-[#124b35]" />
-                ) : (
-                  <MapPin size={16} className="text-[#124b35]" />
-                )}
-                {locationLoading
-                  ? "Detecting Coordinates..."
-                  : t("detectLocBtn")}
-              </button>
+          <div className="mt-4 space-y-4">
+            {!physicalGps ? (
+              <div>
+                <button
+                  type="button"
+                  onClick={getLocation}
+                  disabled={locationLoading}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#dce4de] bg-[#fafcf9] px-4 py-3 text-sm font-bold text-[#14251c] hover:border-[#124b35] cursor-pointer disabled:opacity-50"
+                >
+                  {locationLoading ? <Loader2 size={16} className="animate-spin text-[#124b35]" /> : <MapPin size={16} className="text-[#124b35]" />}
+                  {locationLoading ? "Acquiring GPS Signal..." : "Detect Current Location"}
+                </button>
+                {gpsError && <p className="mt-2 text-xs font-medium text-red-500">{gpsError}</p>}
+              </div>
             ) : (
-              <div className="flex items-center gap-2 rounded-xl bg-[#eef5ef] p-3 text-xs font-bold text-[#124b35]">
-                <CheckCircle2 size={16} />
-                <span>
-                  Captured: {location.latitude.toFixed(5)},{" "}
-                  {location.longitude.toFixed(5)}
-                </span>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between rounded-xl bg-[#eef5ef] p-3 text-xs font-bold text-[#124b35]">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 size={16} />
+                    <span>GPS Lock Acquired</span>
+                  </div>
+                  <button type="button" onClick={getLocation} className="text-[#124b35] underline hover:text-[#0d3d2b]">
+                    Retake
+                  </button>
+                </div>
+
+                {pinnedLocation && (
+                  <TetheredLocationPicker
+                    initialGps={physicalGps}
+                    pinnedLocation={pinnedLocation}
+                    onPinChange={setPinnedLocation}
+                    maxRadiusMeters={100}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -586,24 +486,17 @@ export default function CitizenReportPage() {
         {/* 6. ANONYMOUS TOGGLE & SUBMIT */}
         <div className="rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm sm:p-8">
           <label className="flex cursor-pointer items-start gap-3">
-            <input
-              type="checkbox"
-              checked={anonymous}
-              onChange={(e) => setAnonymous(e.target.checked)}
-              className="mt-1 h-4 w-4 accent-[#124b35]"
-            />
+            <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} className="mt-1 h-4 w-4 accent-[#124b35]" />
             <div>
-              <p className="text-sm font-bold text-[#14251c]">
-                {t("submitAnonLabel")}
-              </p>
+              <p className="text-sm font-bold text-[#14251c]">{t("submitAnonLabel")}</p>
               <p className="text-xs text-[#718078]">{t("anonHint")}</p>
             </div>
           </label>
 
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#124b35] py-4 text-base font-bold text-white shadow-lg transition hover:bg-[#0d3d2b] disabled:opacity-50 cursor-pointer"
+            disabled={isSubmitting || !pinnedLocation}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#124b35] py-4 text-base font-bold text-white shadow-lg transition hover:bg-[#0d3d2b] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {isSubmitting ? (
               <>

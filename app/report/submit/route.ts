@@ -228,4 +228,14 @@ export async function POST(req: Request) {
     console.error("Submission error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  const { latitude, longitude } = await req.json();
+
+if (
+  typeof latitude !== "number" || 
+  typeof longitude !== "number" ||
+  (latitude === 0 && longitude === 0)
+) {
+  return Response.json({ error: "Invalid map coordinates." }, { status: 400 });
+}
 }
