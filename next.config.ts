@@ -19,26 +19,32 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  // 3. Enable server-side local embeddings (Transformers.js / ONNX):
+  // 3. External packages for server execution (Next.js 15+):
   serverExternalPackages: [
     "@xenova/transformers",
-    "onnxruntime-node",
     "imghash",
     "jimp",
-    "@cwasm/nsbmp", 
+    "@cwasm/nsbmp",
   ],
 
+  // 4. Backward compatibility for Next.js 13/14:
   experimental: {
-    // Tells Webpack not to bundle these native AI/Image modules, 
-    // allowing Vercel to copy the .so and .wasm files correctly.
-    // (Kept in sync with serverExternalPackages for Next 14 compatibility)
     serverComponentsExternalPackages: [
       "@xenova/transformers",
-      "onnxruntime-node",
       "imghash",
       "jimp",
-      "@cwasm/nsbmp", 
+      "@cwasm/nsbmp",
     ],
+  },
+
+  // 5. Webpack override to bypass native C++ binary crashes:
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "sharp$": false,
+      "onnxruntime-node$": false,
+    };
+    return config;
   },
 };
 
