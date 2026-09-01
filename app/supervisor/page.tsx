@@ -50,21 +50,20 @@ export default function SupervisorDashboard() {
   const [activeTab, setActiveTab] = useState<"tasks" | "workers">("tasks");
   const [loading, setLoading] = useState(true);
 
-  // MAPPING: Connects Staff Departments to Citizen Reporting Categories
+  // FIXED MAPPING: Exact match to the values saved in the Admin Dashboard
   const getCategoriesForDepartment = (dept: string) => {
     switch (dept) {
       case "Sanitation": return ["Garbage"];
-      case "Roads & Transport": return ["Pothole"];
-      case "Water Supply": return ["Water Leakage"];
+      case "Roads": return ["Pothole"];
+      case "Water": return ["Water Leakage"];
       case "Electricity": return ["Electricity", "Streetlight"];
       case "Drainage": return ["Drainage"];
-      case "Parks & Gardens": return ["Other"];
+      case "Parks": return ["Other"];
       default: return [dept];
     }
   };
 
   useEffect(() => {
-    // 1. Check generic auth
     const rawAuth = localStorage.getItem("civic_connect_auth");
     if (!rawAuth) {
       router.push("/");
@@ -76,7 +75,6 @@ export default function SupervisorDashboard() {
       return;
     }
 
-    // 2. Fetch specific worker data containing the database department
     const rawWorker = localStorage.getItem("civic_connect_worker");
     if (!rawWorker) {
       router.push("/");
@@ -95,7 +93,6 @@ export default function SupervisorDashboard() {
     try {
       const mappedCategories = getCategoriesForDepartment(dept);
 
-      // Fetch live department issues using the mapped array
       const { data: deptIssues } = await supabase
         .from("reports")
         .select("*")
@@ -104,7 +101,6 @@ export default function SupervisorDashboard() {
 
       if (deptIssues) setIssues(deptIssues);
 
-      // Fetch weekly worker performance stats via Supabase RPC
       const { data: workerData, error: rpcErr } = await supabase.rpc(
         "get_weekly_worker_stats",
         { supervisor_dept: dept }
@@ -130,10 +126,14 @@ export default function SupervisorDashboard() {
       })
       .eq("id", reportId);
 
-    if (!error) {
-      alert("Task successfully assigned.");
-      loadDashboardData(department);
+    if (error) {
+      console.error(error);
+      alert(`Assignment failed: ${error.message}`);
+      return;
     }
+
+    alert("Task successfully assigned.");
+    loadDashboardData(department);
   };
 
   const handleSetQuota = async (workerId: string) => {
@@ -143,10 +143,14 @@ export default function SupervisorDashboard() {
       updated_at: new Date().toISOString(),
     });
 
-    if (!error) {
-      alert("Weekly quota updated.");
-      loadDashboardData(department);
+    if (error) {
+      console.error(error);
+      alert(`Quota update failed: ${error.message}`);
+      return;
     }
+
+    alert("Weekly quota updated successfully.");
+    loadDashboardData(department);
   };
 
   const handleSendWarning = async (workerId: string) => {
@@ -156,10 +160,14 @@ export default function SupervisorDashboard() {
       message: warningMessage.trim(),
     });
 
-    if (!error) {
-      alert("Reminder sent to worker dashboard.");
-      setWarningMessage("");
+    if (error) {
+      console.error(error);
+      alert(`Failed to send warning: ${error.message}`);
+      return;
     }
+
+    alert("Reminder sent to worker dashboard successfully.");
+    setWarningMessage("");
   };
 
   const handleLogout = () => {
@@ -169,7 +177,7 @@ export default function SupervisorDashboard() {
     router.push("/");
   };
 
-  if (!department) return null; // Prevents UI flicker while loading
+  if (!department) return null;
 
   return (
     <div className="min-h-screen bg-[#fafcf9] px-4 py-8 sm:px-6 lg:px-8">
