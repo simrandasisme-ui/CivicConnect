@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { UserPlus, Loader2, ShieldCheck, HardHat, Landmark } from "lucide-react";
+import { UserPlus, Loader2, ShieldCheck, HardHat, Landmark, Users } from "lucide-react";
 
 // The { onCreated } prop is added here so TypeScript knows it's allowed!
 export default function AdminStaffManager({ onCreated }: { onCreated?: () => void }) {
   const [name, setName] = useState("");
-  const [staffRole, setStaffRole] = useState<"worker" | "officer">("officer");
+  const [staffRole, setStaffRole] = useState<"worker" | "officer" | "supervisor">("officer");
   const [deptId, setDeptId] = useState("");
   const [department, setDepartment] = useState("Finance & Budgeting");
   const [password, setPassword] = useState("");
@@ -19,6 +19,9 @@ export default function AdminStaffManager({ onCreated }: { onCreated?: () => voi
     if (staffRole === "officer") {
       setDeptId(`BO-${Math.floor(10000 + Math.random() * 90000)}`);
       setDepartment("Finance & Budgeting");
+    } else if (staffRole === "supervisor") {
+      setDeptId(`SPV-${Math.floor(10000 + Math.random() * 90000)}`);
+      setDepartment("Sanitation");
     } else {
       setDeptId(`EMP-${Math.floor(10000 + Math.random() * 90000)}`);
       setDepartment("Sanitation");
@@ -43,9 +46,14 @@ export default function AdminStaffManager({ onCreated }: { onCreated?: () => voi
 
       if (error) throw error;
 
+      const roleDisplay = 
+        staffRole === "officer" ? "Officer" : 
+        staffRole === "supervisor" ? "Supervisor" : 
+        "Worker";
+
       setMessage({ 
         type: "success", 
-        text: `Successfully created ${staffRole === "officer" ? "Officer" : "Worker"}: ${deptId}` 
+        text: `Successfully created ${roleDisplay}: ${deptId}` 
       });
       
       // Reset form but generate a new ID for the next entry
@@ -54,6 +62,8 @@ export default function AdminStaffManager({ onCreated }: { onCreated?: () => voi
       setDeptId(
         staffRole === "officer" 
           ? `BO-${Math.floor(10000 + Math.random() * 90000)}` 
+          : staffRole === "supervisor"
+          ? `SPV-${Math.floor(10000 + Math.random() * 90000)}`
           : `EMP-${Math.floor(10000 + Math.random() * 90000)}`
       );
 
@@ -78,14 +88,14 @@ export default function AdminStaffManager({ onCreated }: { onCreated?: () => voi
         </div>
         <div>
           <h2 className="text-lg font-bold text-[#14251c]">Register Municipal Staff</h2>
-          <p className="text-xs text-[#718078]">Create login credentials for workers and budget officers</p>
+          <p className="text-xs text-[#718078]">Create login credentials for workers, supervisors, and budget officers</p>
         </div>
       </div>
 
       <form onSubmit={handleCreateStaff} className="space-y-5">
         
         {/* ROLE SELECTOR */}
-        <div className="flex rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-1.5">
+        <div className="flex flex-col sm:flex-row rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-1.5 gap-1.5">
           <button
             type="button"
             onClick={() => setStaffRole("worker")}
@@ -97,6 +107,19 @@ export default function AdminStaffManager({ onCreated }: { onCreated?: () => voi
           >
             <HardHat size={16} /> Field Worker
           </button>
+          
+          <button
+            type="button"
+            onClick={() => setStaffRole("supervisor")}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition ${
+              staffRole === "supervisor"
+                ? "bg-[#124b35] text-white shadow-sm"
+                : "text-[#718078] hover:bg-[#f0f4f1]"
+            }`}
+          >
+            <Users size={16} /> Supervisor
+          </button>
+
           <button
             type="button"
             onClick={() => setStaffRole("officer")}
@@ -187,7 +210,8 @@ export default function AdminStaffManager({ onCreated }: { onCreated?: () => voi
             <Loader2 size={16} className="animate-spin" />
           ) : (
             <>
-              <UserPlus size={16} /> Create {staffRole === "officer" ? "Officer" : "Worker"} Account
+              <UserPlus size={16} /> Create{" "}
+              {staffRole === "officer" ? "Officer" : staffRole === "supervisor" ? "Supervisor" : "Worker"} Account
             </>
           )}
         </button>

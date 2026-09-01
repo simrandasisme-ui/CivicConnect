@@ -8,27 +8,56 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
   try {
-    const { reportId, status, resolutionProofUrl, resolutionNotes, assignedWorkerId } = await req.json();
+    const { 
+      reportId, 
+      status, 
+      resolutionProofUrl, 
+      evidenceUrl, // Accepting both old and new payload keys
+      resolutionNotes, 
+      assignedWorkerId, 
+      workerId 
+    } = await req.json();
 
     if (!reportId) return NextResponse.json({ error: "Missing reportId" }, { status: 400 });
+
+    // Normalize variables to bridge old frontend state and new DB schema
+    const finalStatus = status === "Resolved" ? "Completed" : status;
+    const finalEvidence = evidenceUrl || resolutionProofUrl;
+    const finalWorker = workerId || assignedWorkerId;
+
+    // Enforce rule: Evidence must be provided if the task is being marked as Completed
+    if (finalStatus === "Completed" && !finalEvidence) {
+      return NextResponse.json(
+        { error: "Completion requires photographic evidence." },
+        { status: 400 }
+      );
+    }
+
+    // Build the payload targeting our new schema columns
+    const updatePayload: any = {
+      status: finalStatus, // Existing column
+      task_status: finalStatus, // New tracking column
+      resolution_notes: resolutionNotes,
+    };
+
+    if (finalEvidence) updatePayload.completion_evidence_url = finalEvidence;
+    if (finalWorker) updatePayload.assigned_to = finalWorker;
+    if (finalStatus === "Completed") updatePayload.completed_at = new Date().toISOString();
 
     // 1. Update the database securely from the backend
     const { data: updatedReport, error: updateError } = await supabase
       .from("reports")
-      .update({ 
-        status: status,
-        resolution_proof_url: resolutionProofUrl,
-        resolution_notes: resolutionNotes,
-        assigned_worker_id: assignedWorkerId
-      })
+      .update(updatePayload)
       .eq("id", reportId)
       .select()
       .single();
 
-    if (updateError || !updatedReport) throw new Error("Database update failed");
+    if (updateError || !updatedReport) {
+      throw new Error("Database update failed: " + updateError?.message);
+    }
 
-    // 2. Only send emails if the status is actually "Resolved"
-    if (status === "Resolved") {
+    // 2. Only send emails if the status is actually "Completed"
+    if (finalStatus === "Completed") {
       const allEmailsToNotify = new Set([
         updatedReport.user_id,
         ...(updatedReport.secondary_emails || [])
@@ -57,8 +86,9 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, report: updatedReport });
   } catch (error: any) {
+    console.error("Resolve route error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

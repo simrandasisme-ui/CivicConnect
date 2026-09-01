@@ -13,9 +13,10 @@ import {
   UserPlus,
   UserRound,
   Landmark,
+  Users, // Added for Supervisor icon
 } from "lucide-react";
 
-type Role = "citizen" | "worker" | "officer" | "admin";
+type Role = "citizen" | "worker" | "supervisor" | "officer" | "admin";
 
 type AuthMode = "login" | "register" | "forgot";
 
@@ -56,6 +57,12 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
       title: t("login_roleEmployee") || "Municipal Worker",
       subtitle: t("login_roleEmployeeDesc") || "Manage tickets & post evidence",
       icon: Building2,
+    },
+    {
+      id: "supervisor" as Role,
+      title: t("login_roleSupervisor") || "Supervisor",
+      subtitle: t("login_roleSupervisorDesc") || "Manage department tasks",
+      icon: Users,
     },
     {
       id: "officer" as Role,
@@ -103,6 +110,8 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
         setError(
           selectedRole === "worker"
             ? "Please enter your Employee ID."
+            : selectedRole === "supervisor"
+            ? "Please enter your Supervisor ID."
             : selectedRole === "officer"
             ? "Please enter your Officer ID."
             : selectedRole === "citizen"
@@ -147,7 +156,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
           JSON.stringify(sessionData)
         )}; path=/; max-age=86400; SameSite=Lax`;
 
-        window.location.href = "/report"; // update to your actual report route
+        window.location.href = "/report"; 
         return;
       }
 
@@ -216,10 +225,10 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
 
         /*
          * ====================================================
-         * WORKER & OFFICER AUTHENTICATION
+         * WORKER, SUPERVISOR & OFFICER AUTHENTICATION
          * ====================================================
          */
-        else if (selectedRole === "worker" || selectedRole === "officer") {
+        else if (selectedRole === "worker" || selectedRole === "officer" || selectedRole === "supervisor") {
           const { data: workerRecord, error: workerError } = await supabase
             .from("workers")
             .select("*")
@@ -230,7 +239,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
             console.error("Staff lookup error:", workerError);
             throw new Error(
               `Unable to verify ${
-                selectedRole === "officer" ? "Officer ID" : "Employee ID"
+                selectedRole === "officer" ? "Officer ID" : selectedRole === "supervisor" ? "Supervisor ID" : "Employee ID"
               }. Please try again.`
             );
           }
@@ -238,7 +247,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
           if (!workerRecord) {
             throw new Error(
               `${
-                selectedRole === "officer" ? "Officer" : "Worker"
+                selectedRole === "officer" ? "Officer" : selectedRole === "supervisor" ? "Supervisor" : "Worker"
               } record not found. Check your ID.`
             );
           }
@@ -266,6 +275,8 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
               JSON.stringify(staffSession)
             );
           } else {
+            // Using this for both worker and supervisor to maintain compatibility,
+            // or rely completely on the main 'civic_connect_auth' below.
             window.localStorage.setItem(
               "civic_connect_worker",
               JSON.stringify(staffSession)
@@ -330,6 +341,11 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
         window.location.href = "/employees";
         return;
       }
+      
+      if (selectedRole === "supervisor") {
+        window.location.href = "/supervisor";
+        return;
+      }
 
       if (selectedRole === "officer") {
         window.location.href = "/officer";
@@ -342,7 +358,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
       }
 
       if (selectedRole === "citizen" && anonymous) {
-        window.location.href = "/report"; // update to your actual report route
+        window.location.href = "/report"; 
         return;
       }
 
@@ -380,6 +396,8 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
               : t("login_title")
             : selectedRole === "worker"
             ? t("login_title_worker")
+            : selectedRole === "supervisor"
+            ? "Supervisor Login"
             : selectedRole === "admin"
             ? t("login_roleAdmin")
             : t("login_roleOfficer")}
@@ -389,7 +407,7 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
       </div>
 
       {/* ROLES */}
-      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {roles.map((role) => {
           const Icon = role.icon;
           const isSelected = selectedRole === role.id;
@@ -507,6 +525,8 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
               ? t("login_emailLabel")
               : selectedRole === "worker"
               ? t("login_employeeLabel")
+              : selectedRole === "supervisor"
+              ? "Supervisor ID"
               : selectedRole === "officer"
               ? "Officer ID"
               : "Admin ID"}
@@ -527,6 +547,8 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
                   ? t("login_emailPlaceholder")
                   : selectedRole === "worker"
                   ? "e.g. EMP-12345"
+                  : selectedRole === "supervisor"
+                  ? "e.g. SPV-12345"
                   : selectedRole === "officer"
                   ? "e.g. OFF-9901"
                   : "e.g. admin"
@@ -637,6 +659,8 @@ export default function UnifiedLogin({ onLoginSuccess }: UnifiedLoginProps) {
               : t("login_submitButton")
             : selectedRole === "worker"
             ? t("login_submitWorker")
+            : selectedRole === "supervisor"
+            ? "Login to Supervisor Portal"
             : selectedRole === "admin"
             ? "Login to Admin Panel"
             : "Login to Officer Dashboard"}
