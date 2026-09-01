@@ -34,6 +34,7 @@ interface Issue {
   address: string;
   image_urls: string[];
   task_status: string;
+  status: string;
   assigned_to: string | null;
   created_at: string;
 }
@@ -48,6 +49,19 @@ export default function SupervisorDashboard() {
   const [newQuota, setNewQuota] = useState<number>(10);
   const [activeTab, setActiveTab] = useState<"tasks" | "workers">("tasks");
   const [loading, setLoading] = useState(true);
+
+  // MAPPING: Connects Staff Departments to Citizen Reporting Categories
+  const getCategoriesForDepartment = (dept: string) => {
+    switch (dept) {
+      case "Sanitation": return ["Garbage"];
+      case "Roads & Transport": return ["Pothole"];
+      case "Water Supply": return ["Water Leakage"];
+      case "Electricity": return ["Electricity", "Streetlight"];
+      case "Drainage": return ["Drainage"];
+      case "Parks & Gardens": return ["Other"];
+      default: return [dept];
+    }
+  };
 
   useEffect(() => {
     // 1. Check generic auth
@@ -70,7 +84,7 @@ export default function SupervisorDashboard() {
     }
     
     const workerSession = JSON.parse(rawWorker);
-    const activeDept = workerSession.department || "Garbage"; // Fallback only if db is empty
+    const activeDept = workerSession.department || "Sanitation"; 
     
     setDepartment(activeDept);
     loadDashboardData(activeDept);
@@ -79,11 +93,13 @@ export default function SupervisorDashboard() {
   const loadDashboardData = async (dept: string) => {
     setLoading(true);
     try {
-      // Fetch live department issues
+      const mappedCategories = getCategoriesForDepartment(dept);
+
+      // Fetch live department issues using the mapped array
       const { data: deptIssues } = await supabase
         .from("reports")
         .select("*")
-        .eq("category", dept)
+        .in("category", mappedCategories)
         .order("created_at", { ascending: false });
 
       if (deptIssues) setIssues(deptIssues);
@@ -212,16 +228,16 @@ export default function SupervisorDashboard() {
                   <div className="flex items-center justify-between">
                     <span
                       className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${
-                        issue.task_status === "Completed"
+                        issue.task_status === "Completed" || issue.status === "Resolved"
                           ? "bg-emerald-100 text-emerald-800"
-                          : issue.task_status === "In Progress"
+                          : issue.task_status === "In Progress" || issue.status === "In Progress"
                           ? "bg-blue-100 text-blue-800"
                           : issue.task_status === "Assigned"
                           ? "bg-amber-100 text-amber-800"
                           : "bg-red-100 text-red-800"
                       }`}
                     >
-                      {issue.task_status || "Pending"}
+                      {issue.task_status || issue.status || "Pending"}
                     </span>
                     <span className="text-[11px] font-bold text-[#718078]">
                       {new Date(issue.created_at).toLocaleDateString()}
@@ -289,7 +305,7 @@ export default function SupervisorDashboard() {
                   {workers.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="p-8 text-center text-[#718078]">
-                        No workers registered for the {department} department.
+                        No field workers registered for the {department} department.
                       </td>
                     </tr>
                   ) : (
