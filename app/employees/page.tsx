@@ -5,6 +5,7 @@ import { supabase } from "../../lib/supabase";
 import { useLanguage } from "../../context/LanguageContext";
 import {
   AlertCircle,
+  AlertTriangle,
   Building2,
   CheckCircle2,
   Filter,
@@ -26,6 +27,7 @@ type Report = {
   latitude: number | null;
   longitude: number | null;
   status: string;
+  task_status?: string;
   image_urls: string[];
   voice_url: string | null;
   duplicate_count: number;
@@ -33,6 +35,7 @@ type Report = {
   resolution_notes: string | null;
   created_at: string;
   assigned_worker_id?: string | null;
+  assigned_to?: string | null;
 };
 
 type WorkerProfile = {
@@ -160,21 +163,22 @@ export default function EmployeeDashboardPage() {
   const { t } = useLanguage();
 
   // =========================================================
-  // WORKER PROFILE
+  // WORKER PROFILE & WARNINGS
   // =========================================================
 
   const [worker, setWorker] = useState<WorkerProfile | null>(null);
+  const [warnings, setWarnings] = useState<any[]>([]);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [authError, setAuthError] = useState(false);
 
   // =========================================================
-  // REPORTS
+  // REPORTS & FILTERS
   // =========================================================
 
   const [reports, setReports] = useState<Report[]>([]);
   const [loadingReports, setLoadingReports] = useState(false);
-  const [selectedStatusFilter, setSelectedStatusFilter] =
-    useState("All");
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState("All");
+  const [filterMode, setFilterMode] = useState<"assigned" | "department">("assigned");
 
   // =========================================================
   // MODAL
@@ -239,6 +243,7 @@ export default function EmployeeDashboardPage() {
                 };
 
                 setWorker(profile);
+                await fetchWarnings(profile.id);
                 await fetchDepartmentReports(profile);
                 return;
               }
@@ -254,6 +259,7 @@ export default function EmployeeDashboardPage() {
               };
 
               setWorker(fallbackProfile);
+              await fetchWarnings(fallbackProfile.id);
               await fetchDepartmentReports(fallbackProfile);
               return;
             }
@@ -308,6 +314,7 @@ export default function EmployeeDashboardPage() {
         };
 
         setWorker(profile);
+        await fetchWarnings(profile.id);
         await fetchDepartmentReports(profile);
       } catch (error) {
         console.error("Profile fetch error:", error);
@@ -319,6 +326,20 @@ export default function EmployeeDashboardPage() {
 
     fetchWorkerProfile();
   }, []);
+
+  const fetchWarnings = async (workerId: string) => {
+    try {
+      const { data } = await supabase
+        .from("warnings_log")
+        .select("*")
+        .eq("worker_id", workerId)
+        .order("created_at", { ascending: false });
+        
+      if (data) setWarnings(data);
+    } catch (err) {
+      console.error("Failed fetching warnings:", err);
+    }
+  };
 
   // =========================================================
   // LOGOUT HANDLER
@@ -364,8 +385,8 @@ export default function EmployeeDashboardPage() {
 
       const departmentReports = allReports.filter((report) => {
         const explicitlyAssigned =
-          report.assigned_worker_id &&
-          report.assigned_worker_id === currentWorker.id;
+          (report.assigned_to && report.assigned_to === currentWorker.id) ||
+          (report.assigned_worker_id && report.assigned_worker_id === currentWorker.id);
 
         const sameDepartment = reportMatchesDepartment(
           report.category,
@@ -458,15 +479,16 @@ export default function EmployeeDashboardPage() {
           ? "Resolved"
           : "In Progress";
 
+      // USING UPDATED BACKEND ROUTE PAYLOAD
       const response = await fetch("/report/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           reportId: activeReport.id,
           status: dbStatus,
-          resolutionProofUrl: resolutionProofUrl,
+          evidenceUrl: resolutionProofUrl, 
           resolutionNotes: briefReportNote.trim() || null,
-          assignedWorkerId: worker.id || null,
+          workerId: worker.id, 
         }),
       });
 
@@ -502,7 +524,7 @@ export default function EmployeeDashboardPage() {
   // FILTER
   // =========================================================
 
-  const filteredReports =
+  const statusFilteredReports =
     selectedStatusFilter === "All"
       ? reports
       : reports.filter((report) => {
@@ -510,25 +532,30 @@ export default function EmployeeDashboardPage() {
             selectedStatusFilter ===
             "Not Started"
           ) {
-            return report.status === "Open";
+            return report.status === "Open" || report.task_status === "Assigned";
           }
 
           if (
             selectedStatusFilter ===
             "In Progress"
           ) {
-            return report.status === "In Progress";
+            return report.status === "In Progress" || report.task_status === "In Progress";
           }
 
           if (
             selectedStatusFilter ===
             "Completed"
           ) {
-            return report.status === "Resolved";
+            return report.status === "Resolved" || report.task_status === "Completed";
           }
 
           return true;
         });
+
+  const displayedReports = filterMode === "assigned"
+    ? statusFilteredReports.filter(r => r.assigned_to === worker?.id || r.assigned_worker_id === worker?.id)
+    : statusFilteredReports;
+
 
   // =========================================================
   // LOADING / HARD KICK REDIRECT
@@ -558,6 +585,23 @@ export default function EmployeeDashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+
+      {/* SUPERVISOR WARNINGS BANNER */}
+      {warnings.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+          <div className="flex items-center gap-2 text-sm font-bold text-amber-900">
+            <AlertTriangle size={18} /> Supervisor Reminders & Updates
+          </div>
+          <ul className="mt-2 space-y-2 text-xs text-amber-800">
+            {warnings.map((w) => (
+              <li key={w.id} className="flex gap-2">
+                <span className="font-bold">•</span>
+                <span>{w.message} <span className="opacity-75 block mt-0.5 text-[10px]">{new Date(w.created_at).toLocaleString()}</span></span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* HEADER */}
       <div className="mb-8 flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
@@ -635,7 +679,30 @@ export default function EmployeeDashboardPage() {
         </div>
       </div>
 
-      {/* FILTERS */}
+      {/* FILTER TABS */}
+      <div className="mb-6 flex gap-3 border-b border-[#dce4de] pb-4">
+        <button
+          onClick={() => setFilterMode("assigned")}
+          className={`rounded-xl px-4 py-2.5 text-xs font-bold transition ${
+            filterMode === "assigned"
+              ? "bg-[#124b35] text-white"
+              : "border border-[#dce4de] bg-white text-[#526158] hover:bg-[#fafcf9]"
+          }`}
+        >
+          Assigned to Me
+        </button>
+        <button
+          onClick={() => setFilterMode("department")}
+          className={`rounded-xl px-4 py-2.5 text-xs font-bold transition ${
+            filterMode === "department"
+              ? "bg-[#124b35] text-white"
+              : "border border-[#dce4de] bg-white text-[#526158] hover:bg-[#fafcf9]"
+          }`}
+        >
+          All {worker.department} Tasks
+        </button>
+      </div>
+
       <div className="mb-6 flex items-center gap-2 overflow-x-auto pb-4">
         <Filter
           size={16}
@@ -698,7 +765,7 @@ export default function EmployeeDashboardPage() {
             Fetching department tickets...
           </span>
         </div>
-      ) : filteredReports.length === 0 ? (
+      ) : displayedReports.length === 0 ? (
         <div className="rounded-3xl border border-[#dce4de] bg-white p-12 text-center shadow-sm">
 
           <CheckCircle2
@@ -707,21 +774,19 @@ export default function EmployeeDashboardPage() {
           />
 
           <h3 className="mt-3 text-lg font-bold text-[#14251c]">
-            No complaints for your department
+            No complaints found
           </h3>
 
           <p className="mt-1 text-xs text-[#718078]">
-            No reports currently match the{" "}
-            <span className="font-bold">
-              {worker.department}
-            </span>{" "}
-            department.
+            {filterMode === "assigned"
+              ? "You have no pending tasks explicitly assigned to you."
+              : `No reports currently match the ${worker.department} department.`}
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
 
-          {filteredReports.map((report) => (
+          {displayedReports.map((report) => (
             <div
               key={report.id}
               className="flex flex-col justify-between rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
@@ -731,27 +796,22 @@ export default function EmployeeDashboardPage() {
                 {/* CATEGORY + STATUS */}
                 <div className="flex items-center justify-between gap-2">
 
-                  <span className="rounded-lg bg-[#eef5ef] px-2.5 py-1 text-xs font-bold text-[#124b35]">
+                  <span className="rounded-lg bg-[#eef5ef] px-2.5 py-1 text-[10px] font-bold tracking-wider uppercase text-[#124b35]">
                     {report.category}
                   </span>
 
                   <span
-                    className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                      report.status ===
-                      "Resolved"
+                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase ${
+                      report.task_status === "Completed" || report.status === "Resolved"
                         ? "bg-emerald-100 text-emerald-800"
-                        : report.status ===
-                          "In Progress"
+                        : report.task_status === "In Progress" || report.status === "In Progress"
+                        ? "bg-blue-100 text-blue-800"
+                        : report.task_status === "Assigned"
                         ? "bg-amber-100 text-amber-800"
                         : "bg-red-100 text-red-800"
                     }`}
                   >
-                    {report.status === "Open"
-                      ? "Not Started"
-                      : report.status ===
-                        "Resolved"
-                      ? "Completed"
-                      : "In Progress"}
+                    {report.task_status || report.status || "Pending"}
                   </span>
                 </div>
 
@@ -761,10 +821,10 @@ export default function EmployeeDashboardPage() {
                   <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-[11px] font-bold text-orange-800">
                     <AlertCircle size={13} />
 
-                    Reported by{" "}
+                    Priority Boosted ({" "}
                     {report.duplicate_count +
                       1}{" "}
-                    citizens
+                    citizens)
                   </div>
                 )}
 
@@ -816,7 +876,7 @@ export default function EmployeeDashboardPage() {
                       <CheckCircle2
                         size={12}
                       />
-                      Completion Proof
+                      Work Completed Proof
                     </p>
 
                     <img
@@ -856,40 +916,41 @@ export default function EmployeeDashboardPage() {
               {/* FOOTER */}
               <div className="mt-6 flex items-center justify-between border-t border-[#dce4de] pt-4">
 
-                <span className="text-[11px] text-[#718078]">
-                  Logged:{" "}
+                <span className="text-[11px] font-bold text-[#718078]">
+                  Reported:{" "}
                   {new Date(
                     report.created_at
                   ).toLocaleDateString()}
                 </span>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveReport(
-                      report
-                    );
+                {report.assigned_to === worker.id || report.assigned_worker_id === worker.id ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveReport(
+                        report
+                      );
 
-                    setNewStatus(
-                      report.status ===
-                        "Open"
-                        ? "Not Started"
-                        : report.status ===
-                          "Resolved"
-                        ? "Completed"
-                        : "In Progress"
-                    );
+                      setNewStatus(
+                        report.task_status ||
+                        (report.status === "Open" ? "Not Started" : report.status === "Resolved" ? "Completed" : "In Progress")
+                      );
 
-                    setBriefReportNote(
-                      report.resolution_notes ||
-                        ""
-                    );
-                  }}
-                  className="flex items-center gap-1.5 rounded-xl bg-[#124b35] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0d3d2b]"
-                >
-                  <Wrench size={14} />
-                  Update Task
-                </button>
+                      setBriefReportNote(
+                        report.resolution_notes ||
+                          ""
+                      );
+                    }}
+                    className="flex items-center gap-1.5 rounded-xl bg-[#124b35] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0d3d2b]"
+                  >
+                    <Wrench size={14} />
+                    Update Task
+                  </button>
+                ) : (
+                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-md border border-amber-200">
+                    Not Assigned to You
+                  </span>
+                )}
               </div>
             </div>
           ))}
@@ -897,7 +958,7 @@ export default function EmployeeDashboardPage() {
       )}
 
       {/* =====================================================
-          UPDATE MODAL
+         UPDATE MODAL
       ===================================================== */}
 
       {activeReport && (
@@ -908,7 +969,7 @@ export default function EmployeeDashboardPage() {
             <div className="flex items-center justify-between border-b border-[#dce4de] bg-[#fafcf9] px-6 py-4">
 
               <h3 className="text-lg font-bold text-[#14251c]">
-                Update Assigned Duty
+                Update Assigned Task
               </h3>
 
               <button
@@ -930,15 +991,15 @@ export default function EmployeeDashboardPage() {
               {/* REPORT SUMMARY */}
               <div className="rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-4">
 
-                <p className="text-xs font-bold uppercase tracking-wider text-[#718078]">
-                  Report
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#718078]">
+                  Report Category
                 </p>
 
                 <p className="mt-1 font-bold text-[#14251c]">
                   {activeReport.category}
                 </p>
 
-                <p className="mt-2 text-sm text-[#718078]">
+                <p className="mt-2 text-sm text-[#718078] line-clamp-2">
                   {activeReport.description ||
                     "No description provided."}
                 </p>
@@ -946,8 +1007,8 @@ export default function EmployeeDashboardPage() {
 
               {/* STATUS */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#718078]">
-                  Select Work Status
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#526158]">
+                  Task Progress
                 </label>
 
                 <select
@@ -959,24 +1020,24 @@ export default function EmployeeDashboardPage() {
                   }
                   className="mt-2 w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] p-3 text-sm font-semibold outline-none focus:border-[#124b35]"
                 >
-                  <option value="Not Started">
-                    Not Started Yet
+                  <option value="Assigned">
+                    Assigned (Not Started)
                   </option>
 
                   <option value="In Progress">
-                    In Progress
+                    In Progress (Working on it)
                   </option>
 
                   <option value="Completed">
-                    Completed
+                    Completed (Resolved)
                   </option>
                 </select>
               </div>
 
               {/* NOTES */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#718078]">
-                  Brief Report Message to Citizen
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#526158]">
+                  Resolution Notes <span className="normal-case font-normal text-[#718078]">(Sent to citizen)</span>
                 </label>
 
                 <textarea
@@ -989,14 +1050,14 @@ export default function EmployeeDashboardPage() {
                       e.target.value
                     )
                   }
-                  placeholder="e.g. Waste cleared completely and disinfectant sprayed in area..."
+                  placeholder="e.g. Cleared the blockage and repaired the surrounding concrete."
                   className="mt-2 w-full resize-none rounded-xl border border-[#dce4de] bg-[#fafcf9] p-3 text-sm outline-none focus:border-[#124b35]"
                 />
               </div>
 
               {/* PROOF */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#718078]">
+              <div className={`${newStatus === "Completed" ? "block" : "hidden"}`}>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#526158]">
 
                   Upload Completed Work Proof
 
@@ -1018,12 +1079,13 @@ export default function EmployeeDashboardPage() {
                   <p className="mt-2 text-xs font-bold text-[#14251c]">
                     {proofFile
                       ? proofFile.name
-                      : "Attach 'After Photo' proof"}
+                      : "Tap to upload completion photo"}
                   </p>
 
                   <input
                     type="file"
                     accept="image/*"
+                    capture="environment"
                     onChange={(e) =>
                       setProofFile(
                         e.target.files?.[0] ||
@@ -1036,14 +1098,14 @@ export default function EmployeeDashboardPage() {
               </div>
 
               {/* BUTTONS */}
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3 pt-4 border-t border-[#dce4de]">
 
                 <button
                   type="button"
                   onClick={() =>
                     setActiveReport(null)
                   }
-                  className="w-1/3 rounded-xl border border-[#dce4de] py-3 text-xs font-bold text-[#526158] hover:bg-[#fafcf9]"
+                  className="w-1/2 rounded-xl border border-[#dce4de] bg-[#fafcf9] py-3 text-xs font-bold text-[#526158] hover:bg-white"
                 >
                   Cancel
                 </button>
@@ -1051,15 +1113,18 @@ export default function EmployeeDashboardPage() {
                 <button
                   type="submit"
                   disabled={updating}
-                  className="flex w-2/3 items-center justify-center gap-2 rounded-xl bg-[#124b35] py-3 text-xs font-bold text-white transition hover:bg-[#0d3d2b] disabled:opacity-50"
+                  className="flex w-1/2 items-center justify-center gap-2 rounded-xl bg-[#124b35] py-3 text-xs font-bold text-white transition hover:bg-[#0d3d2b] disabled:opacity-50"
                 >
                   {updating ? (
-                    <Loader2
-                      size={16}
-                      className="animate-spin"
-                    />
+                    <>
+                      <Loader2
+                        size={16}
+                        className="animate-spin"
+                      />
+                      Saving...
+                    </>
                   ) : (
-                    "Save & Notify Citizen"
+                    "Save & Notify"
                   )}
                 </button>
 
