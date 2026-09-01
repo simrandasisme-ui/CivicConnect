@@ -47,118 +47,6 @@ type WorkerProfile = {
   role: string;
 };
 
-/* =========================================================
-   DEPARTMENT / CATEGORY MATCHING
-   ========================================================= */
-
-const DEPARTMENT_ALIASES: Record<string, string[]> = {
-  sanitation: [
-    "sanitation",
-    "garbage",
-    "waste",
-    "waste management",
-    "garbage collection",
-    "cleanliness",
-  ],
-
-  roads: [
-    "roads",
-    "road",
-    "public works",
-    "pothole",
-    "potholes",
-    "street",
-    "road maintenance",
-  ],
-
-  water: [
-    "water",
-    "water supply",
-    "water leakage",
-    "water leak",
-    "pipeline",
-    "pipelines",
-  ],
-
-  electricity: [
-    "electricity",
-    "electrical",
-    "power",
-    "street light",
-    "streetlight",
-    "lighting",
-  ],
-
-  drainage: [
-    "drainage",
-    "drain",
-    "sewer",
-    "sewage",
-    "flooding",
-    "stormwater",
-  ],
-
-  parks: [
-    "parks",
-    "park",
-    "garden",
-    "gardens",
-    "public garden",
-  ],
-};
-
-function normalizeText(value: string | null | undefined) {
-  return (value || "")
-    .toLowerCase()
-    .trim()
-    // strip zero-width / non-breaking / other invisible whitespace-like chars
-    .replace(/[\u00A0\u200B-\u200D\uFEFF]/g, "")
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * Converts a department/category into a canonical department.
- */
-function getCanonicalDepartment(value: string | null | undefined) {
-  const normalized = normalizeText(value);
-
-  for (const [canonical, aliases] of Object.entries(DEPARTMENT_ALIASES)) {
-    if (
-      aliases.some(
-        (alias) =>
-          normalized === alias ||
-          normalized.includes(alias) ||
-          alias.includes(normalized)
-      )
-    ) {
-      return canonical;
-    }
-  }
-
-  return normalized;
-}
-
-/**
- * Determines whether a report belongs to a worker's department.
- */
-function reportMatchesDepartment(
-  reportCategory: string,
-  workerDepartment: string
-) {
-  if (normalizeText(reportCategory) === "other") {
-    return true;
-  }
-
-  const reportDepartment = getCanonicalDepartment(reportCategory);
-  const workerDept = getCanonicalDepartment(workerDepartment);
-
-  if (!reportDepartment || !workerDept) return false;
-
-  return reportDepartment === workerDept;
-}
-
 export default function EmployeeDashboardPage() {
   const { t } = useLanguage();
 
@@ -178,7 +66,6 @@ export default function EmployeeDashboardPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("All");
-  const [filterMode, setFilterMode] = useState<"assigned" | "department">("assigned");
 
   // =========================================================
   // MODAL
@@ -244,7 +131,7 @@ export default function EmployeeDashboardPage() {
 
                 setWorker(profile);
                 await fetchWarnings(profile.id);
-                await fetchDepartmentReports(profile);
+                await fetchAssignedReports(profile);
                 return;
               }
 
@@ -260,7 +147,7 @@ export default function EmployeeDashboardPage() {
 
               setWorker(fallbackProfile);
               await fetchWarnings(fallbackProfile.id);
-              await fetchDepartmentReports(fallbackProfile);
+              await fetchAssignedReports(fallbackProfile);
               return;
             }
           } catch (storageError) {
@@ -315,7 +202,7 @@ export default function EmployeeDashboardPage() {
 
         setWorker(profile);
         await fetchWarnings(profile.id);
-        await fetchDepartmentReports(profile);
+        await fetchAssignedReports(profile);
       } catch (error) {
         console.error("Profile fetch error:", error);
         setAuthError(true);
@@ -355,10 +242,10 @@ export default function EmployeeDashboardPage() {
   };
 
   // =========================================================
-  // FETCH REPORTS
+  // FETCH REPORTS (STRICTLY ASSIGNED ONLY)
   // =========================================================
 
-  const fetchDepartmentReports = async (
+  const fetchAssignedReports = async (
     currentWorker: WorkerProfile
   ) => {
     setLoadingReports(true);
@@ -383,23 +270,18 @@ export default function EmployeeDashboardPage() {
 
       const allReports = (data || []) as Report[];
 
-      const departmentReports = allReports.filter((report) => {
-        const explicitlyAssigned =
+      // Strictly filter to explicitly assigned issues
+      const assignedReports = allReports.filter((report) => {
+        return (
           (report.assigned_to && report.assigned_to === currentWorker.id) ||
-          (report.assigned_worker_id && report.assigned_worker_id === currentWorker.id);
-
-        const sameDepartment = reportMatchesDepartment(
-          report.category,
-          currentWorker.department
+          (report.assigned_worker_id && report.assigned_worker_id === currentWorker.id)
         );
-
-        return explicitlyAssigned || sameDepartment;
       });
 
-      setReports(departmentReports);
+      setReports(assignedReports);
     } catch (error) {
       console.error(
-        "Failed to fetch department reports:",
+        "Failed to fetch assigned reports:",
         error
       );
 
@@ -479,7 +361,6 @@ export default function EmployeeDashboardPage() {
           ? "Resolved"
           : "In Progress";
 
-      // USING UPDATED BACKEND ROUTE PAYLOAD
       const response = await fetch("/report/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -498,7 +379,7 @@ export default function EmployeeDashboardPage() {
         throw new Error(result.error || "Failed to update ticket and send emails.");
       }
 
-      await fetchDepartmentReports(worker);
+      await fetchAssignedReports(worker);
 
       setActiveReport(null);
       setProofFile(null);
@@ -551,11 +432,6 @@ export default function EmployeeDashboardPage() {
 
           return true;
         });
-
-  const displayedReports = filterMode === "assigned"
-    ? statusFilteredReports.filter(r => r.assigned_to === worker?.id || r.assigned_worker_id === worker?.id)
-    : statusFilteredReports;
-
 
   // =========================================================
   // LOADING / HARD KICK REDIRECT
@@ -619,11 +495,7 @@ export default function EmployeeDashboardPage() {
           </h1>
 
           <p className="mt-2 text-sm text-[#718078]">
-            Showing complaints for the{" "}
-            <span className="font-bold text-[#124b35]">
-              {worker.department}
-            </span>{" "}
-            department.
+            Showing pending tasks assigned explicitly to you.
           </p>
         </div>
 
@@ -677,30 +549,6 @@ export default function EmployeeDashboardPage() {
             Log Out
           </button>
         </div>
-      </div>
-
-      {/* FILTER TABS */}
-      <div className="mb-6 flex gap-3 border-b border-[#dce4de] pb-4">
-        <button
-          onClick={() => setFilterMode("assigned")}
-          className={`rounded-xl px-4 py-2.5 text-xs font-bold transition ${
-            filterMode === "assigned"
-              ? "bg-[#124b35] text-white"
-              : "border border-[#dce4de] bg-white text-[#526158] hover:bg-[#fafcf9]"
-          }`}
-        >
-          Assigned to Me
-        </button>
-        <button
-          onClick={() => setFilterMode("department")}
-          className={`rounded-xl px-4 py-2.5 text-xs font-bold transition ${
-            filterMode === "department"
-              ? "bg-[#124b35] text-white"
-              : "border border-[#dce4de] bg-white text-[#526158] hover:bg-[#fafcf9]"
-          }`}
-        >
-          All {worker.department} Tasks
-        </button>
       </div>
 
       <div className="mb-6 flex items-center gap-2 overflow-x-auto pb-4">
@@ -762,10 +610,10 @@ export default function EmployeeDashboardPage() {
           />
 
           <span className="text-sm font-bold text-[#124b35]">
-            Fetching department tickets...
+            Fetching your assigned tasks...
           </span>
         </div>
-      ) : displayedReports.length === 0 ? (
+      ) : statusFilteredReports.length === 0 ? (
         <div className="rounded-3xl border border-[#dce4de] bg-white p-12 text-center shadow-sm">
 
           <CheckCircle2
@@ -774,19 +622,17 @@ export default function EmployeeDashboardPage() {
           />
 
           <h3 className="mt-3 text-lg font-bold text-[#14251c]">
-            No complaints found
+            All caught up!
           </h3>
 
           <p className="mt-1 text-xs text-[#718078]">
-            {filterMode === "assigned"
-              ? "You have no pending tasks explicitly assigned to you."
-              : `No reports currently match the ${worker.department} department.`}
+            You have no pending tasks explicitly assigned to you at the moment.
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
 
-          {displayedReports.map((report) => (
+          {statusFilteredReports.map((report) => (
             <div
               key={report.id}
               className="flex flex-col justify-between rounded-3xl border border-[#dce4de] bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
@@ -849,7 +695,7 @@ export default function EmployeeDashboardPage() {
                     </div>
                   )}
 
-                {/* VOICE - FIXED HEIGHT AND FALLBACK ADDED */}
+                {/* VOICE */}
                 {report.voice_url && (
                   <div className="mt-3 rounded-2xl border border-[#dce4de] bg-[#f0f4f1] p-3">
                     <p className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#124b35]">
@@ -896,7 +742,7 @@ export default function EmployeeDashboardPage() {
                 )}
               </div>
 
-              {/* MAP NAVIGATION (FAILSAFE) */}
+              {/* MAP NAVIGATION */}
                 {report.latitude !== null && 
                 report.longitude !== null && 
                 report.latitude !== 0 && 
@@ -917,40 +763,34 @@ export default function EmployeeDashboardPage() {
               <div className="mt-6 flex items-center justify-between border-t border-[#dce4de] pt-4">
 
                 <span className="text-[11px] font-bold text-[#718078]">
-                  Reported:{" "}
+                  Assigned:{" "}
                   {new Date(
                     report.created_at
                   ).toLocaleDateString()}
                 </span>
 
-                {report.assigned_to === worker.id || report.assigned_worker_id === worker.id ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveReport(
-                        report
-                      );
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveReport(
+                      report
+                    );
 
-                      setNewStatus(
-                        report.task_status ||
-                        (report.status === "Open" ? "Not Started" : report.status === "Resolved" ? "Completed" : "In Progress")
-                      );
+                    setNewStatus(
+                      report.task_status ||
+                      (report.status === "Open" ? "Not Started" : report.status === "Resolved" ? "Completed" : "In Progress")
+                    );
 
-                      setBriefReportNote(
-                        report.resolution_notes ||
-                          ""
-                      );
-                    }}
-                    className="flex items-center gap-1.5 rounded-xl bg-[#124b35] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0d3d2b]"
-                  >
-                    <Wrench size={14} />
-                    Update Task
-                  </button>
-                ) : (
-                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-md border border-amber-200">
-                    Not Assigned to You
-                  </span>
-                )}
+                    setBriefReportNote(
+                      report.resolution_notes ||
+                        ""
+                    );
+                  }}
+                  className="flex items-center gap-1.5 rounded-xl bg-[#124b35] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0d3d2b]"
+                >
+                  <Wrench size={14} />
+                  Update Task
+                </button>
               </div>
             </div>
           ))}
