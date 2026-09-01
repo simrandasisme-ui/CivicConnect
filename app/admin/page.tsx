@@ -36,7 +36,7 @@ export default function AdminDashboard() {
   const [checkingAuth, setCheckingAuth] = useState(true);
 
   // Registration State
-  const [staffRole, setStaffRole] = useState<"worker" | "officer">("worker");
+  const [staffRole, setStaffRole] = useState<"worker" | "supervisor" | "officer">("worker");
   const [staffName, setStaffName] = useState("");
   const [department, setDepartment] = useState("");
   const [generatedId, setGeneratedId] = useState("");
@@ -114,20 +114,28 @@ export default function AdminDashboard() {
   };
 
   // Switch roles and clear generated ID/department
-  const handleRoleSwitch = (role: "worker" | "officer") => {
+  const handleRoleSwitch = (role: "worker" | "supervisor" | "officer") => {
     setStaffRole(role);
     setGeneratedId("");
     setDepartment(""); 
   };
 
-  // Generates a random 5-digit number appended to EMP- or BO-
+  // Generates a random 5-digit number appended to EMP-, SPV-, or BO-
   const handleGenerateId = () => {
     const randomNum = Math.floor(10000 + Math.random() * 90000);
     if (staffRole === "officer") {
       setGeneratedId(`BO-${randomNum}`);
+    } else if (staffRole === "supervisor") {
+      setGeneratedId(`SPV-${randomNum}`);
     } else {
       setGeneratedId(`EMP-${randomNum}`);
     }
+  };
+
+  const getRoleDisplayName = (role: string) => {
+    if (role === 'officer') return 'Officer';
+    if (role === 'supervisor') return 'Supervisor';
+    return 'Worker';
   };
 
   const handleRegisterStaff = async (e: React.FormEvent) => {
@@ -167,7 +175,7 @@ export default function AdminDashboard() {
 
       if (error) throw error;
 
-      setMessage({ type: "success", text: `${staffRole === 'officer' ? 'Officer' : 'Worker'} ${staffName} (${generatedId}) successfully registered!` });
+      setMessage({ type: "success", text: `${getRoleDisplayName(staffRole)} ${staffName} (${generatedId}) successfully registered!` });
 
       // Clear form for the next entry
       setStaffName("");
@@ -301,7 +309,7 @@ export default function AdminDashboard() {
           <form onSubmit={handleRegisterStaff} className="space-y-5">
 
             {/* ROLE SELECTOR */}
-            <div className="mb-2 flex rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-1.5">
+            <div className="mb-2 flex flex-col sm:flex-row gap-1.5 rounded-2xl border border-[#dce4de] bg-[#fafcf9] p-1.5">
               <button
                 type="button"
                 onClick={() => handleRoleSwitch("worker")}
@@ -312,6 +320,17 @@ export default function AdminDashboard() {
                 }`}
               >
                 <HardHat size={16} /> Field Worker
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRoleSwitch("supervisor")}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${
+                  staffRole === "supervisor"
+                    ? "bg-[#124b35] text-white shadow-sm"
+                    : "text-[#718078] hover:bg-[#f0f4f1]"
+                }`}
+              >
+                <Users size={16} /> Supervisor
               </button>
               <button
                 type="button"
@@ -348,7 +367,7 @@ export default function AdminDashboard() {
                     className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] p-3 pl-10 text-sm focus:border-[#124b35] focus:outline-none focus:ring-2 focus:ring-[#124b35]/10"
                   >
                     <option value="">Select Department...</option>
-                    {staffRole === "worker" ? (
+                    {staffRole === "worker" || staffRole === "supervisor" ? (
                       <>
                         <option value="Sanitation">Sanitation</option>
                         <option value="Roads">Roads & Transport</option>
@@ -372,7 +391,7 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-[#14251c]">
-                  {staffRole === "officer" ? "Officer ID" : "Employee ID"}
+                  {staffRole === "officer" ? "Officer ID" : staffRole === "supervisor" ? "Supervisor ID" : "Employee ID"}
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -400,7 +419,7 @@ export default function AdminDashboard() {
                     type="text"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder={`Set ${staffRole} password`}
+                    placeholder={`Set ${getRoleDisplayName(staffRole)} password`}
                     className="w-full rounded-xl border border-[#dce4de] bg-[#fafcf9] p-3 pl-10 text-sm focus:border-[#124b35] focus:outline-none focus:ring-2 focus:ring-[#124b35]/10"
                   />
                 </div>
@@ -422,7 +441,7 @@ export default function AdminDashboard() {
               disabled={loading}
               className="mt-4 w-full cursor-pointer rounded-xl bg-[#124b35] py-3.5 text-sm font-bold text-white transition hover:bg-[#0d3d2b] active:scale-[0.98] disabled:opacity-50"
             >
-              {loading ? "Registering..." : `Register ${staffRole === 'officer' ? 'Officer' : 'Worker'} Account`}
+              {loading ? "Registering..." : `Register ${getRoleDisplayName(staffRole)} Account`}
             </button>
           </form>
         </div>
@@ -462,6 +481,8 @@ export default function AdminDashboard() {
                         <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
                           w.role === "officer" 
                             ? "bg-amber-100 text-amber-800" 
+                            : w.role === "supervisor"
+                            ? "bg-purple-100 text-purple-800"
                             : "bg-blue-100 text-blue-800"
                         }`}>
                           {w.role || "Worker"}
