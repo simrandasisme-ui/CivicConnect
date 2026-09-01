@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { CheckCircle2, Clock, AlertTriangle } from "lucide-react";
+import { CheckCircle2, Clock, AlertTriangle, Flag } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 
 type Report = {
@@ -17,6 +17,7 @@ type Report = {
   image_urls: string[];
   resolution_proof_url: string | null;
   created_at: string;
+  flag_count?: number;
 };
 
 // Component to handle proper map resizing after mount
@@ -54,8 +55,9 @@ const greenIcon = createCustomIcon("#10b981"); // Resolved
 export default function PublicTrackingMap() {
   const { t } = useLanguage();
   const [reports, setReports] = useState<Report[]>([]);
+  const [flaggingId, setFlaggingId] = useState<string | null>(null);
 
-  // Default center coordinates (Bhubaneswar / Default City)
+  // Default center coordinates
   const defaultCenter: [number, number] = [20.2961, 85.8245];
 
   useEffect(() => {
@@ -66,6 +68,7 @@ export default function PublicTrackingMap() {
     const { data, error } = await supabase
       .from("reports")
       .select("*")
+      .neq("status", "Flagged") // Ensure flagged posts never load on the map
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -75,13 +78,43 @@ export default function PublicTrackingMap() {
     }
   };
 
+  const handleFlagReport = async (reportId: string) => {
+    setFlaggingId(reportId);
+    
+    try {
+      const response = await fetch("/report/flag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId }),
+      });
+      
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to flag report.");
+      }
+
+      if (data.isHidden) {
+        // Auto-hide threshold reached: immediately remove it from the map view
+        setReports((prev) => prev.filter((r) => r.id !== reportId));
+        alert("This issue has received multiple community flags and has been hidden pending review.");
+      } else {
+        alert("Report successfully flagged for review.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Something went wrong while flagging.");
+    } finally {
+      setFlaggingId(null);
+    }
+  };
+
   const getMarkerIcon = (status: string) => {
     if (status === "Resolved") return greenIcon;
     if (status === "In Progress") return yellowIcon;
     return redIcon;
   };
 
-  // Moved inside the component so it can use the `t` function
   const getStatusBadge = (status: string) => {
     if (status === "Resolved") {
       return (
@@ -155,8 +188,6 @@ export default function PublicTrackingMap() {
                 <div className="max-w-xs space-y-3 p-1 text-[#14251c]">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-bold text-[#14251c] text-sm">
-                      {/* Note: If you want to translate the category name dynamically, 
-                          you can map it to your keys here, but leaving it as DB text for now */}
                       {report.category}
                     </span>
                     {getStatusBadge(report.status)}
@@ -195,10 +226,26 @@ export default function PublicTrackingMap() {
                       />
                     </div>
                   )}
-
-                  <p className="text-[10px] text-[#718078] pt-1">
-                    {t("loggedOn")} {new Date(report.created_at).toLocaleDateString()}
-                  </p>
+                  
+                  {/* FOOTER & FLAGGING ACTION */}
+                  <div className="flex items-center justify-between border-t border-[#dce4de] pt-2 mt-2">
+                    <p className="text-[10px] text-[#718078]">
+                      {t("loggedOn")} {new Date(report.created_at).toLocaleDateString()}
+                    </p>
+                    
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFlagReport(report.id);
+                      }}
+                      disabled={flaggingId === report.id}
+                      title="Flag as inappropriate or fake"
+                      className="inline-flex items-center gap-1 text-[10px] font-bold text-red-500 hover:text-red-700 transition disabled:opacity-50"
+                    >
+                      <Flag size={12} />
+                      {flaggingId === report.id ? "Flagging..." : "Flag"}
+                    </button>
+                  </div>
                 </div>
               </Popup>
             </Marker>
