@@ -12,7 +12,7 @@ export async function POST(req: Request) {
       reportId, 
       status, 
       resolutionProofUrl, 
-      evidenceUrl, // Accepting both old and new payload keys
+      evidenceUrl, 
       resolutionNotes, 
       assignedWorkerId, 
       workerId 
@@ -20,29 +20,33 @@ export async function POST(req: Request) {
 
     if (!reportId) return NextResponse.json({ error: "Missing reportId" }, { status: 400 });
 
-    // Normalize variables to bridge old frontend state and new DB schema
-    const finalStatus = status === "Resolved" ? "Completed" : status;
+    // =================================================================
+    // BUG FIX 1: Strictly enforce "Resolved" terminology
+    // =================================================================
+    const finalStatus = status === "Completed" ? "Resolved" : status;
     const finalEvidence = evidenceUrl || resolutionProofUrl;
     const finalWorker = workerId || assignedWorkerId;
 
-    // Enforce rule: Evidence must be provided if the task is being marked as Completed
-    if (finalStatus === "Completed" && !finalEvidence) {
+    if (finalStatus === "Resolved" && !finalEvidence) {
       return NextResponse.json(
-        { error: "Completion requires photographic evidence." },
+        { error: "Resolution requires photographic evidence." },
         { status: 400 }
       );
     }
 
-    // Build the payload targeting our new schema columns
     const updatePayload: any = {
-      status: finalStatus, // Existing column
-      task_status: finalStatus, // New tracking column
+      status: finalStatus, 
+      task_status: finalStatus, // Keeps task_status synced as "Resolved"
       resolution_notes: resolutionNotes,
     };
 
-    if (finalEvidence) updatePayload.completion_evidence_url = finalEvidence;
+    // =================================================================
+    // BUG FIX 2: Map to the correct frontend image column
+    // =================================================================
+    if (finalEvidence) updatePayload.resolution_proof_url = finalEvidence;
+    
     if (finalWorker) updatePayload.assigned_to = finalWorker;
-    if (finalStatus === "Completed") updatePayload.completed_at = new Date().toISOString();
+    if (finalStatus === "Resolved") updatePayload.completed_at = new Date().toISOString();
 
     // 1. Update the database securely from the backend
     const { data: updatedReport, error: updateError } = await supabase
@@ -56,8 +60,8 @@ export async function POST(req: Request) {
       throw new Error("Database update failed: " + updateError?.message);
     }
 
-    // 2. Only send emails if the status is actually "Completed"
-    if (finalStatus === "Completed") {
+    // 2. Only send emails if the status is actually "Resolved"
+    if (finalStatus === "Resolved") {
       const allEmailsToNotify = new Set([
         updatedReport.user_id,
         ...(updatedReport.secondary_emails || [])
