@@ -87,27 +87,34 @@ export async function POST(req: Request) {
       reporterId,
       reporterEmail,
       address,
-      anonymous, // <-- FIXED: We now explicitly extract the anonymous flag from the frontend
+      anonymous,
     } = body;
+
+    // Validate map coordinates before proceeding
+    if (
+      typeof latitude !== "number" || 
+      typeof longitude !== "number" ||
+      (latitude === 0 && longitude === 0)
+    ) {
+      return NextResponse.json({ error: "Invalid map coordinates." }, { status: 400 });
+    }
 
     // =====================================================================
     // SECURITY FIREWALL: STRICT ANONYMITY ENFORCEMENT
-    // If the anonymous toggle is true, we immediately destroy the email
-    // and force the ID to "Anonymous Citizen" so it CANNOT leak.
     // =====================================================================
     const isAnon = anonymous === true;
     const safeReporterId = isAnon ? "Anonymous Citizen" : (reporterId || "Registered Citizen");
     const safeReporterEmail = isAnon ? null : reporterEmail;
 
-    if (!category || latitude === undefined || longitude === undefined) {
+    if (!category) {
       return NextResponse.json(
-        { error: "Missing required fields (category, latitude, longitude)." },
+        { error: "Missing required fields (category)." },
         { status: 400 }
       );
     }
 
-    const lat = parseFloat(latitude);
-    const lng = parseFloat(longitude);
+    const lat = parseFloat(latitude.toString());
+    const lng = parseFloat(longitude.toString());
 
     console.log(`\n[DEBUG 1] Searching 100m radius for category: ${category} at ${lat}, ${lng}`);
 
@@ -124,11 +131,18 @@ export async function POST(req: Request) {
 
     if (rpcError) console.error("[DEBUG] Spatial lookup error:", rpcError);
 
-    console.log(`[DEBUG 2] RPC returned ${nearbyReports?.length || 0} nearby matches.`);
+    // =====================================================================
+    // STRICT MERGE FILTER: Ignore Resolved or Flagged reports
+    // =====================================================================
+    const activeNearbyReports = (nearbyReports || []).filter(
+      (report: any) => report.status !== "Resolved" && report.status !== "Flagged"
+    );
+
+    console.log(`[DEBUG 2] RPC returned ${nearbyReports?.length || 0} total nearby. Filtered down to ${activeNearbyReports.length} active candidates.`);
 
     // 2. Check Candidate Matches using Text Embeddings & Visual Hashing
-    if (nearbyReports && nearbyReports.length > 0) {
-      const matchCandidate = nearbyReports[0];
+    if (activeNearbyReports.length > 0) {
+      const matchCandidate = activeNearbyReports[0];
       
       const combinedNew = `${category}: ${description || ""}`.trim();
       const combinedExisting = `${matchCandidate.category || category}: ${matchCandidate.description || ""}`.trim();
@@ -156,8 +170,6 @@ export async function POST(req: Request) {
 
         if (updateError) console.error("[DEBUG] Failed to update DB:", updateError);
 
-        // Store secondary email and dispatch the "Merged" notification email
-        // We use safeReporterEmail which is strictly NULL if anonymous
         if (safeReporterEmail) {
           const { data: currentReport } = await supabase
             .from("reports")
@@ -202,7 +214,6 @@ export async function POST(req: Request) {
           voice_url: voiceUrl || null, 
           latitude: lat,
           longitude: lng,
-          // user_id now perfectly maps to safeReporterId which handles anonymity
           user_id: safeReporterId, 
           address: address || null,
           status: "Open", 
@@ -215,7 +226,6 @@ export async function POST(req: Request) {
 
     if (insertError) throw insertError;
 
-    // Dispatch the "Created" notification email ONLY if not anonymous
     if (safeReporterEmail) {
       await sendNotificationEmail(safeReporterEmail, category, false, newReport.id);
     }
@@ -229,14 +239,4 @@ export async function POST(req: Request) {
     console.error("Submission error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-
-  const { latitude, longitude } = await req.json();
-
-if (
-  typeof latitude !== "number" || 
-  typeof longitude !== "number" ||
-  (latitude === 0 && longitude === 0)
-) {
-  return Response.json({ error: "Invalid map coordinates." }, { status: 400 });
-}
 }
